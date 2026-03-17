@@ -1,18 +1,20 @@
 """
-Main training pipeline for nuclear property prediction.
+Main training pipeline for nuclear energy level prediction.
 
 This script orchestrates the complete workflow:
-1. Fetch data from IAEA API for elements 1-40
-2. Preprocess and clean the data
-3. Engineer features
-4. Train the neural network model
+1. Fetch energy level data from IAEA LiveChart API for elements 1-40
+2. Preprocess and clean the energy level data
+3. Prepare features and energy level sequences
+4. Train the LSTM neural network model
 5. Evaluate performance
-6. Predict properties for elements 41-118
+6. Predict energy levels for all isotopes of elements 41-118
+7. Output predictions as CSV tables/matrices
 """
 import os
 import sys
 import json
 import argparse
+import numpy as np
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -21,28 +23,30 @@ from config.settings import (
     TRAINING_ELEMENTS, 
     PREDICTION_ELEMENTS,
     NUCLEAR_FEATURES,
-    PROCESSED_DATA_DIR
+    PROCESSED_DATA_DIR,
+    ENERGY_LEVEL_CONFIG
 )
 from src.data_collection.data_fetcher import DataFetcher
 from src.preprocessing.data_cleaner import DataCleaner
 from src.preprocessing.feature_engineer import FeatureEngineer
 from src.preprocessing.data_loader import DataLoader
-from src.model.model_trainer import ModelTrainer
+from src.model.model_trainer import EnergyLevelTrainer
 from src.evaluation.metrics import EvaluationMetrics
 from src.evaluation.visualizer import PredictionVisualizer
 
 
 def main(args):
-    """Run the complete training and prediction pipeline."""
+    """Run the complete training and prediction pipeline for energy levels."""
     
     print("=" * 70)
-    print("NUCLEAR PROPERTY PREDICTION AI")
-    print("Training on elements 1-40, predicting for elements 41-118")
+    print("NUCLEAR ENERGY LEVEL PREDICTION AI")
+    print("Training on isotopes of elements 1-40, predicting for 41-118")
     print("Data source: IAEA LiveChart API (no API key required)")
+    print("Output: Energy level tables/matrices for each isotope")
     print("=" * 70)
     
     # Step 1: Fetch data from IAEA LiveChart API
-    print("\n[STEP 1] Fetching data from IAEA LiveChart API...")
+    print("\n[STEP 1] Fetching energy level data from IAEA LiveChart API...")
     fetcher = DataFetcher()
     
     if args.fetch_data:
@@ -60,7 +64,7 @@ def main(args):
             return
     
     # Step 2: Load and clean data
-    print("\n[STEP 2] Cleaning data...")
+    print("\n[STEP 2] Cleaning energy level data...")
     loader = DataLoader()
     raw_data = loader.load_raw_json("training_data_raw.json")
     
@@ -68,58 +72,64 @@ def main(args):
     cleaned_df = cleaner.clean_dataset(raw_data)
     
     # Save cleaned data
-    loader.save_processed_csv(cleaned_df, "cleaned_nuclear_data.csv")
+    loader.save_processed_csv(cleaned_df, "cleaned_energy_level_data.csv")
     print(f"Cleaned data shape: {cleaned_df.shape}")
     
-    # Step 3: Feature engineering
-    print("\n[STEP 3] Engineering features...")
+    # Step 3: Prepare features and energy level sequences
+    print("\n[STEP 3] Preparing features and energy level sequences...")
     engineer = FeatureEngineer()
     
-    # Define target columns
-    target_cols = ['binding_energy', 'half_life_seconds', 'neutron_cross_section']
-    
-    # Prepare features
-    X, y, feature_names = engineer.prepare_features(
+    # Prepare input features (Z, A, and derived features)
+    feature_cols = ['atomic_number', 'mass_number']
+    X, feature_names = engineer.prepare_input_features(
         cleaned_df, 
-        target_cols=target_cols,
+        feature_cols=feature_cols,
         fit=True
     )
     
+    # Prepare energy level sequences as targets
+    # Shape: [num_isotopes, max_levels, 2] where 2 = [energy, spin_parity_encoded]
+    y, isotope_info = engineer.prepare_energy_level_targets(
+        cleaned_df,
+        max_levels=ENERGY_LEVEL_CONFIG["max_levels_per_isotope"]
+    )
+    
     print(f"Feature matrix shape: {X.shape}")
-    print(f"Target matrix shape: {y.shape}")
+    print(f"Energy level target shape: {y.shape}")
+    print(f"Number of isotopes: {X.shape[0]}")
+    print(f"Max energy levels per isotope: {y.shape[1]}")
     print(f"Features: {feature_names}")
     
     # Save processed data
-    loader.save_model_data(X, y, feature_names, "model_data.pkl")
+    loader.save_model_data(X, y, feature_names, "energy_level_model_data.pkl")
     
     # Step 4: Train model
-    print("\n[STEP 4] Training neural network model...")
-    trainer = ModelTrainer()
+    print("\n[STEP 4] Training LSTM neural network model...")
+    trainer = EnergyLevelTrainer()
     
     metadata = trainer.train_and_save(
         X=X,
         y=y,
-        target_names=target_cols,
         feature_names=feature_names,
         validation_split=args.val_split,
         epochs=args.epochs,
         batch_size=args.batch_size,
-        model_filename="nuclear_predictor.h5"
+        model_filename="energy_level_predictor.h5"
     )
     
     # Step 5: Evaluate model
     print("\n[STEP 5] Evaluating model...")
-    evaluator = EvaluationMetrics()
-    
-    # Get validation predictions
     from sklearn.model_selection import train_test_split
     X_train, X_val, y_train, y_val = train_test_split(
         X, y, test_size=args.val_split, random_state=42
     )
     
     y_pred = trainer.model.predict(X_val)
-    metrics = evaluator.calculate_all_metrics(y_val, y_pred, target_cols)
-    evaluator.print_report(metrics)
+    
+    # Calculate MSE for energy predictions
+    energy_mse = np.mean((y_pred[:, :, 0] - y_val[:, :, 0]) ** 2)
+    print(f"\nValidation Energy MSE: {energy_mse:.6f} keV²")
+    print(f"Validation Energy RMSE: {np.sqrt(energy_mse):.3f} keV")
     
     # Step 6: Create visualizations
     print("\n[STEP 6] Creating visualizations...")
@@ -128,18 +138,11 @@ def main(args):
     
     visualizer = PredictionVisualizer(save_dir=viz_dir)
     
-    # Plot predictions vs actual
-    visualizer.plot_predictions_vs_actual(
-        y_val, y_pred, 
-        target_names=target_cols,
-        save_name="predictions_vs_actual.png"
-    )
-    
-    # Plot residuals
-    visualizer.plot_residuals(
-        y_val, y_pred,
-        target_names=target_cols,
-        save_name="residuals.png"
+    # Plot sample energy level predictions
+    visualizer.plot_energy_levels_comparison(
+        y_val[:5], y_pred[:5],
+        isotope_info=isotope_info[:5],
+        save_name="energy_levels_comparison.png"
     )
     
     # Plot training history
@@ -149,46 +152,58 @@ def main(args):
             save_name="training_history.png"
         )
     
-    # Step 7: Predict for remaining elements
-    print("\n[STEP 7] Predicting properties for elements 41-118...")
+    # Step 7: Predict for remaining elements (41-118)
+    print("\n[STEP 7] Predicting energy levels for elements 41-118...")
     
     # Create features for prediction elements
-    prediction_df = engineer.create_prediction_features(PREDICTION_ELEMENTS)
+    # Generate isotopes for each element in prediction range
+    prediction_isotopes = []
+    for z in PREDICTION_ELEMENTS:
+        # Estimate stable/known isotope range
+        min_a = z  # At least Z protons
+        max_a = z + int(z * 0.6)  # Approximate neutron-rich limit
+        for a in range(min_a, min(max_a, min_a + 15)):  # Limit to ~15 isotopes per element
+            prediction_isotopes.append({
+                'atomic_number': z,
+                'mass_number': a
+            })
     
-    # Handle missing values in prediction data
-    prediction_df = engineer.handle_missing_values(prediction_df)
+    # Create feature matrix for predictions
+    X_pred = np.array([[iso['atomic_number'], iso['mass_number']] 
+                       for iso in prediction_isotopes])
     
     # Scale features using fitted scaler
-    _, X_pred = engineer.scale_features(
-        prediction_df, 
-        feature_names,
-        fit=False
-    )
+    X_pred_scaled = engineer.scale_prediction_features(X_pred, feature_names)
     
     # Make predictions
-    predictions = trainer.model.predict(X_pred)
+    print(f"Predicting for {len(prediction_isotopes)} isotopes...")
+    predictions_table = trainer.predict_energy_levels(X_pred_scaled, prediction_isotopes)
     
-    # Save predictions
-    prediction_results = {
-        'atomic_numbers': PREDICTION_ELEMENTS,
-        'predictions': predictions.tolist(),
-        'target_names': target_cols
-    }
+    # Export predictions to CSV (matrix/table format)
+    output_csv = os.path.join(PROCESSED_DATA_DIR, "predicted_energy_levels_41_118.csv")
+    trainer.model.export_predictions_to_csv(predictions_table, output_csv)
     
-    predictions_file = os.path.join(PROCESSED_DATA_DIR, "predictions_elements_41_118.json")
-    with open(predictions_file, 'w') as f:
-        json.dump(prediction_results, f, indent=2)
+    print(f"\nPredictions exported to: {output_csv}")
     
-    print(f"Predictions saved to: {predictions_file}")
+    # Also save as JSON for programmatic access
+    output_json = os.path.join(PROCESSED_DATA_DIR, "predicted_energy_levels_41_118.json")
+    with open(output_json, 'w') as f:
+        json.dump(predictions_table, f, indent=2)
+    print(f"JSON output saved to: {output_json}")
     
     # Print sample predictions
-    print("\nSample Predictions (first 5 elements):")
-    print("-" * 60)
-    for i in range(5):
-        atomic_num = PREDICTION_ELEMENTS[i]
-        print(f"\nElement {atomic_num}:")
-        for j, target in enumerate(target_cols):
-            print(f"  {target}: {predictions[i][j]:.6f}")
+    print("\n" + "=" * 70)
+    print("SAMPLE PREDICTIONS (First 3 isotopes):")
+    print("=" * 70)
+    for i in range(min(3, len(predictions_table))):
+        iso = predictions_table[i]
+        print(f"\n{iso['element_symbol']}-{iso['mass_number']} (Z={iso['atomic_number']}):")
+        print(f"  {'Level':<6} {'Energy (keV)':<15} {'Spin-Parity':<12}")
+        print(f"  {'-'*6} {'-'*15} {'-'*12}")
+        for level in iso['energy_levels'][:10]:  # Show first 10 levels
+            print(f"  {level['level']:<6} {level['energy_keV']:<15.3f} {level['spin_parity']:<12}")
+        if len(iso['energy_levels']) > 10:
+            print(f"  ... ({len(iso['energy_levels']) - 10} more levels)")
     
     # Step 8: Save training metadata
     print("\n[STEP 8] Saving training metadata...")
@@ -204,6 +219,12 @@ def main(args):
         else:
             metadata_serializable[key] = float(value) if isinstance(value, float) else value
     
+    metadata_serializable['prediction_summary'] = {
+        'total_isotopes_predicted': len(predictions_table),
+        'elements_covered': list(set([p['atomic_number'] for p in predictions_table])),
+        'output_files': [output_csv, output_json]
+    }
+    
     with open(metadata_file, 'w') as f:
         json.dump(metadata_serializable, f, indent=2)
     
@@ -214,15 +235,18 @@ def main(args):
     print("=" * 70)
     print(f"\nOutputs:")
     print(f"  - Trained model: {metadata['model_path']}")
-    print(f"  - Predictions: {predictions_file}")
+    print(f"  - CSV Predictions (table format): {output_csv}")
+    print(f"  - JSON Predictions: {output_json}")
     print(f"  - Visualizations: {viz_dir}/")
     print(f"  - Metadata: {metadata_file}")
+    print(f"\nTotal isotopes predicted: {len(predictions_table)}")
+    print(f"Elements covered: {len(metadata_serializable['prediction_summary']['elements_covered'])} (Z=41-118)")
     print("=" * 70)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Train AI model for nuclear property prediction using IAEA LiveChart API"
+        description="Train AI model for nuclear energy level prediction using IAEA LiveChart API"
     )
     parser.add_argument(
         "--fetch-data",
