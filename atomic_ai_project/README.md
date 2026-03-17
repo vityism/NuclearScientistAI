@@ -160,12 +160,38 @@ python src\main.py --epochs 100 --batch-size 32
 | `--epochs` | Number of training epochs/generations | 100 |
 | `--batch-size` | Training batch size | 32 |
 | `--val-split` | Validation split ratio (0.0-1.0) | 0.2 |
+| `--training-elements` | Number of first N elements to use for training (30-100) | 40 |
 | `--learning-rate` | Initial learning rate | 0.001 |
 | `--model-path` | Path to save/load model | `models/nuclear_predictor.h5` |
 
-## Customizing Training Time and Generations
+## Customizing Training Time, Generations, and Training Range
 
-The training process can be customized to balance between training time and model accuracy:
+The training process can be customized to balance between training time, model accuracy, and the amount of training data used:
+
+### Adjusting Number of Training Elements (N)
+
+NEW FEATURE: You can now customize how many elements (from the start of the periodic table) to use for training. This allows you to experiment with different training set sizes:
+
+```bash
+# Use minimum allowed training set (first 30 elements)
+python src/main.py --training-elements 30 --fetch-data
+
+# Use default training set (first 40 elements)
+python src/main.py --training-elements 40 --fetch-data
+
+# Use extended training set (first 60 elements)
+python src/main.py --training-elements 60 --fetch-data
+
+# Use maximum allowed training set (first 100 elements)
+python src/main.py --training-elements 100 --fetch-data
+```
+
+**Important**: The `--training-elements` parameter must be between 30 and 100. The model will automatically predict elements from N+1 to 118.
+
+**Why adjust training elements?**
+- **Smaller N (30-40)**: Tests model's ability to extrapolate far beyond training data; faster training
+- **Medium N (50-70)**: Balanced approach with moderate extrapolation
+- **Larger N (80-100)**: Less extrapolation, potentially higher accuracy for nearby elements; longer training time
 
 ### Adjusting Number of Epochs (Generations)
 
@@ -235,11 +261,16 @@ The evaluation system assesses model performance using a hold-out validation app
 
 #### Data Used for Evaluation
 
-1. **Training Data**: Elements 1-40 (Hydrogen to Zirconium) - used to train the model
+1. **Training Data**: Elements 1-N (where N is specified via `--training-elements`, default 40) - used to train the model
 2. **Validation Data**: Randomly selected 20% (configurable via `--val-split`) of the training data is held out during training
-3. **Test Data**: Elements 41-118 - predictions are made but cannot be evaluated against ground truth (since these are the unknown targets)
+3. **Test/Prediction Data**: Elements N+1 to 118 - predictions are made but cannot be evaluated against ground truth (since these are the unknown targets)
 
-**Important**: The model is ONLY trained on elements 1-40. Evaluation metrics are calculated on the held-out validation portion of elements 1-40, NOT on elements 41-118 (which have no ground truth in this experimental setup).
+**Important**: The model is ONLY trained on elements 1-N. Evaluation metrics are calculated on the held-out validation portion of elements 1-N, NOT on elements N+1 to 118 (which have no ground truth in this experimental setup).
+
+**Example scenarios:**
+- Default (`--training-elements 40`): Train on elements 1-40, validate on 20% of those, predict for 41-118
+- Extended (`--training-elements 60`): Train on elements 1-60, validate on 20% of those, predict for 61-118
+- Maximum (`--training-elements 100`): Train on elements 1-100, validate on 20% of those, predict for 101-118
 
 #### Scoring Metrics
 
@@ -298,7 +329,9 @@ python src/main.py --evaluate --model-path models/nuclear_predictor.h5
 
 After training and prediction, outputs are generated in multiple formats:
 
-### 1. CSV Table/Matrix (`data/processed/predicted_energy_levels_41_118.csv`)
+### 1. CSV Table/Matrix (`data/processed/predicted_energy_levels_N_118.csv`)
+
+The output filename dynamically reflects the prediction range based on your training elements setting.
 
 Structured as a table with columns:
 ```
@@ -311,7 +344,14 @@ atomic_number,element,mass_number,level,energy_keV,spin_parity
 
 Each row represents one energy level of one isotope. All isotopes are predicted individually.
 
-### 2. JSON Structured Data (`data/processed/predicted_energy_levels_41_118.json`)
+**Example filenames:**
+- `predicted_energy_levels_41_118.csv` (default, trained on elements 1-40)
+- `predicted_energy_levels_61_118.csv` (trained on elements 1-60)
+- `predicted_energy_levels_101_118.csv` (trained on elements 1-100)
+
+### 2. JSON Structured Data (`data/processed/predicted_energy_levels_N_118.json`)
+
+The output filename dynamically reflects the prediction range based on your training elements setting.
 
 Hierarchical format organized by element → isotope → energy levels:
 ```json
@@ -368,8 +408,8 @@ The model predicts the following properties for **each isotope** of elements 41-
 
 This project **exclusively** uses the **IAEA LiveChart API** (https://www-nds.iaea.org/relnsd/vchar/), which is a public API that does not require authentication. 
 
-- **Training Data**: All nuclear properties (especially energy levels) from elements 1-40 (Hydrogen to Zirconium), including all known isotopes
-- **Prediction Targets**: Elements 41-118 (Niobium to Oganesson), all isotopes predicted individually
+- **Training Data**: All nuclear properties (especially energy levels) from elements 1-N (where N is configurable via `--training-elements`, default 40), including all known isotopes
+- **Prediction Targets**: Elements N+1 to 118, all isotopes predicted individually
 - **Data Fields**: Excitation energies, spin-parity assignments, half-lives, decay modes
 
 The IAEA (International Atomic Energy Agency) LiveChart database is the authoritative source for nuclear structure data worldwide.
