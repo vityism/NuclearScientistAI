@@ -1,53 +1,191 @@
 """
-Feature engineering module for atomic/nuclear data.
+Feature engineering module for atomic/nuclear energy level data.
+Creates features and prepares energy level sequences for training.
 """
 import numpy as np
 import pandas as pd
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Any
 from sklearn.preprocessing import StandardScaler, MinMaxScaler
 
 
 class FeatureEngineer:
-    """Creates and transforms features for nuclear property prediction."""
+    """Creates and transforms features for nuclear energy level prediction."""
     
     def __init__(self):
         """Initialize the feature engineer."""
         self.scaler = StandardScaler()
         self.fitted = False
     
-    def add_derived_features(self, df: pd.DataFrame) -> pd.DataFrame:
+    def prepare_input_features(self, df: pd.DataFrame, 
+                               feature_cols: List[str],
+                               fit: bool = True) -> Tuple[np.ndarray, List[str]]:
         """
-        Add derived features based on atomic number.
+        Prepare input features from DataFrame.
         
         Args:
             df: Input DataFrame with cleaned data.
+            feature_cols: List of column names to use as features.
+            fit: Whether to fit the scaler (True for training, False for prediction).
             
         Returns:
-            DataFrame with additional derived features.
+            Tuple of (feature_matrix, feature_names).
         """
-        df = df.copy()
+        # Ensure required columns exist
+        available_cols = [col for col in feature_cols if col in df.columns]
         
-        # Atomic number features
-        df['log_atomic_number'] = np.log1p(df['atomic_number'])
-        df['atomic_number_squared'] = df['atomic_number'] ** 2
+        if not available_cols:
+            # Create minimal features from atomic_number and mass_number
+            X = df[['atomic_number', 'mass_number']].values
+            feature_names = ['atomic_number', 'mass_number']
+        else:
+            X = df[available_cols].values
+            feature_names = available_cols
         
-        # Neutron-to-proton ratio approximation
-        df['n_p_ratio_estimate'] = df['atomic_number'] * 0.5 + 10
+        # Scale features
+        X_scaled, _ = self.scale_features(df, feature_names, fit=fit)
         
-        # Periodic table position features
-        df['period'] = self._get_period(df['atomic_number'])
-        df['group'] = self._get_group(df['atomic_number'])
-        
-        # Block classification (s, p, d, f)
-        df['block_s'] = (df['atomic_number'] <= 4).astype(int)
-        df['block_p'] = ((df['atomic_number'] > 4) & (df['atomic_number'] <= 18)).astype(int)
-        df['block_d'] = ((df['atomic_number'] > 18) & (df['atomic_number'] <= 40)).astype(int)
-        df['block_f'] = (df['atomic_number'] > 40).astype(int)
-        
-        return df
+        return X_scaled, feature_names
     
-    def _get_period(self, atomic_number: pd.Series) -> pd.Series:
-        """Determine periodic table period from atomic number."""
+    def prepare_energy_level_targets(self, df: pd.DataFrame,
+                                     max_levels: int = 50) -> Tuple[np.ndarray, List[Dict]]:
+        """
+        Prepare energy level sequences as targets for training.
+        
+        Args:
+            df: Input DataFrame with energy level data.
+            max_levels: Maximum number of energy levels per isotope.
+            
+        Returns:
+            Tuple of (target_array, isotope_info).
+            target_array shape: [num_isotopes, max_levels, 2]
+                where [:, :, 0] = energy in keV, [:, :, 1] = spin_parity_encoded
+        """
+        num_isotopes = len(df)
+        targets = np.zeros((num_isotopes, max_levels, 2))
+        isotope_info = []
+        
+        for idx, row in df.iterrows():
+            atomic_num = row.get('atomic_number', 0)
+            mass_num = row.get('mass_number', 0)
+            
+            isotope_info.append({
+                'atomic_number': int(atomic_num),
+                'mass_number': int(mass_num)
+            })
+            
+            # Get energy levels if available
+            energy_levels = row.get('energy_levels', [])
+            
+            if isinstance(energy_levels, list) and len(energy_levels) > 0:
+                for level_idx, level_data in enumerate(energy_levels[:max_levels]):
+                    # Extract energy value
+                    if isinstance(level_data, dict):
+                        energy = level_data.get('energy', 0.0)
+                        spin_parity = level_data.get('spin_parity', '0+')
+                    else:
+                        energy = float(level_data) if len(level_data) > 0 else 0.0
+                        spin_parity = '0+'
+                    
+                    # Store energy
+                    targets[idx, level_idx, 0] = float(energy)
+                    
+                    # Encode spin-parity
+                    targets[idx, level_idx, 1] = self._encode_spin_parity(spin_parity)
+            else:
+                # Set ground state (level 0) to 0 energy
+                targets[idx, 0, 0] = 0.0
+                targets[idx, 0, 1] = self._encode_spin_parity('0+')
+        
+        return targets, isotope_info
+    
+    def _encode_spin_parity(self, spin_parity: str) -> float:
+        """
+        Encode spin-parity string to numerical value.
+        
+        Args:
+            spin_parity: String like "0+", "7/2-", "1/2+", etc.
+            
+        Returns:
+            Encoded float value.
+        """
+        # Mapping of common spin-parity values
+        encoding_map = {
+            "0+": 0.0, "1/2+": 0.5, "1+": 1.0, "3/2+": 1.5,
+            "2+": 2.0, "5/2+": 2.5, "3+": 3.0, "7/2+": 3.5,
+            "4+": 4.0, "9/2+": 4.5, "5+": 5.0,
+            "0-": 0.1, "1/2-": 0.6, "1-": 1.1, "3/2-": 1.6,
+            "2-": 2.1, "5/2-": 2.6, "3-": 3.1, "7/2-": 3.6,
+            "4-": 4.1, "9/2-": 4.6, "5-": 5.1
+        }
+        
+        if spin_parity in encoding_map:
+            return encoding_map[spin_parity]
+        
+        # Try to parse fractional spins
+        try:
+            if '/' in spin_parity:
+                parts = spin_parity.split('/')
+                if len(parts) == 2:
+                    numerator = float(parts[0])
+                    denominator = float(parts[1].replace('+', '').replace('-', ''))
+                    base_value = numerator / denominator
+                    # Add parity offset
+                    if '-' in spin_parity:
+                        base_value += 0.1
+                    return base_value
+        except:
+            pass
+        
+        # Default to 0+
+        return 0.0
+    
+    def scale_features(self, df: pd.DataFrame, 
+                      feature_names: List[str],
+                      fit: bool = True) -> Tuple[np.ndarray, StandardScaler]:
+        """
+        Scale features using StandardScaler.
+        
+        Args:
+            df: Input DataFrame.
+            feature_names: List of feature column names.
+            fit: Whether to fit the scaler or just transform.
+            
+        Returns:
+            Tuple of (scaled_features, scaler).
+        """
+        available_cols = [col for col in feature_names if col in df.columns]
+        
+        if not available_cols:
+            X = df[['atomic_number', 'mass_number']].values
+        else:
+            X = df[available_cols].values
+        
+        if fit:
+            X_scaled = self.scaler.fit_transform(X)
+            self.fitted = True
+        else:
+            if not self.fitted:
+                raise ValueError("Scaler must be fitted before transforming")
+            X_scaled = self.scaler.transform(X)
+        
+        return X_scaled, self.scaler
+    
+    def scale_prediction_features(self, X_raw: np.ndarray, 
+                                  feature_names: List[str]) -> np.ndarray:
+        """
+        Scale raw prediction features using fitted scaler.
+        
+        Args:
+            X_raw: Raw feature matrix [num_samples, num_features].
+            feature_names: Names of features (for validation).
+            
+        Returns:
+            Scaled feature matrix.
+        """
+        if not self.fitted:
+            raise ValueError("Scaler must be fitted before scaling prediction data")
+        
+        return self.scaler.transform(X_raw)
         periods = pd.Series(index=atomic_number.index, dtype=int)
         
         periods[atomic_number <= 2] = 1
