@@ -1,6 +1,6 @@
 # Nuclear Property Prediction AI
 
-An AI system trained on atomic/nuclear characteristics of the first 40 elements of the periodic table to predict properties of remaining elements (41-118). Data is sourced exclusively from the IAEA atomic database API.
+An AI system trained on atomic/nuclear characteristics of the first 40 elements of the periodic table to predict properties of remaining elements (41-118). Data is sourced exclusively from the IAEA LiveChart API (no API key required).
 
 ## Project Structure
 
@@ -9,10 +9,10 @@ atomic_ai_project/
 ├── config/                 # Configuration settings
 │   └── settings.py
 ├── data/                   # Data storage
-│   ├── raw/               # Raw data from IAEA API
+│   ├── raw/               # Raw data from IAEA LiveChart API
 │   └── processed/         # Processed and cleaned data
 ├── src/                    # Source code
-│   ├── data_collection/   # IAEA API client and data fetching
+│   ├── data_collection/   # IAEA LiveChart API client and data fetching
 │   ├── preprocessing/     # Data cleaning and feature engineering
 │   ├── model/             # Neural network model and training
 │   ├── evaluation/        # Metrics and visualization
@@ -26,7 +26,7 @@ atomic_ai_project/
 
 ## Features
 
-- **Data Collection**: Fetches atomic/nuclear data from IAEA API including:
+- **Data Collection**: Fetches atomic/nuclear data from IAEA LiveChart API including:
   - Binding energy
   - Half-life
   - Decay modes
@@ -66,16 +66,13 @@ cd atomic_ai_project
 pip install -r requirements.txt
 ```
 
-3. Set up environment variable for IAEA API key (optional):
-```bash
-export IAEA_API_KEY="your-api-key-here"
-```
+**Note**: No API key is required! The project uses the public IAEA LiveChart API.
 
 ## Usage
 
 ### Training the Model
 
-To fetch fresh data from IAEA API and train the model:
+To fetch fresh data from IAEA LiveChart API and train the model:
 
 ```bash
 python src/main.py --fetch-data --epochs 100 --batch-size 32
@@ -91,8 +88,7 @@ python src/main.py --epochs 100
 
 ### Command Line Options
 
-- `--api-key`: IAEA API key (or set IAEA_API_KEY environment variable)
-- `--fetch-data`: Fetch fresh data from IAEA API
+- `--fetch-data`: Fetch fresh data from IAEA LiveChart API
 - `--epochs`: Number of training epochs (default: 100)
 - `--batch-size`: Training batch size (default: 32)
 - `--val-split`: Validation split ratio (default: 0.2)
@@ -135,6 +131,10 @@ The model predicts the following properties for elements 41-118:
 - Matplotlib
 - Seaborn
 - Requests
+
+## Data Source
+
+This project exclusively uses the **IAEA LiveChart API** (https://www-nds.iaea.org/relnsd/vchar/), which is a public API that does not require authentication. All training data comes from elements 1-40 (Hydrogen to Zirconium), and predictions are made for elements 41-118.
 
 ## License
 
