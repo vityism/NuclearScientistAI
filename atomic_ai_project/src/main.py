@@ -20,8 +20,12 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from config.settings import (
-    TRAINING_ELEMENTS, 
-    PREDICTION_ELEMENTS,
+    DEFAULT_TRAINING_START,
+    DEFAULT_TRAINING_END,
+    DEFAULT_PREDICTION_START,
+    DEFAULT_PREDICTION_END,
+    MIN_TRAINING_ELEMENTS,
+    MAX_TRAINING_ELEMENTS,
     NUCLEAR_FEATURES,
     PROCESSED_DATA_DIR,
     ENERGY_LEVEL_CONFIG
@@ -38,16 +42,37 @@ from src.evaluation.visualizer import PredictionVisualizer
 def main(args):
     """Run the complete training and prediction pipeline for energy levels."""
     
+    # Determine training range based on CLI argument or defaults
+    if args.training_elements is not None:
+        training_end = args.training_elements
+        # Validate range
+        if training_end < MIN_TRAINING_ELEMENTS or training_end > MAX_TRAINING_ELEMENTS:
+            print(f"Error: Training elements must be between {MIN_TRAINING_ELEMENTS} and {MAX_TRAINING_ELEMENTS}.")
+            print(f"You specified: {training_end}")
+            return
+        training_start = DEFAULT_TRAINING_START
+    else:
+        training_start = DEFAULT_TRAINING_START
+        training_end = DEFAULT_TRAINING_END
+    
+    # Set prediction range (elements after training_end up to 118)
+    prediction_start = training_end + 1
+    prediction_end = DEFAULT_PREDICTION_END
+    
+    training_elements = list(range(training_start, training_end + 1))
+    prediction_elements = list(range(prediction_start, prediction_end + 1))
+    
     print("=" * 70)
     print("NUCLEAR ENERGY LEVEL PREDICTION AI")
-    print("Training on isotopes of elements 1-40, predicting for 41-118")
+    print(f"Training on isotopes of elements {training_start}-{training_end} (N={len(training_elements)})")
+    print(f"Predicting for elements {prediction_start}-{prediction_end}")
     print("Data source: IAEA LiveChart API (no API key required)")
     print("Output: Energy level tables/matrices for each isotope")
     print("=" * 70)
     
     # Step 1: Fetch data from IAEA LiveChart API
-    print("\n[STEP 1] Fetching energy level data from IAEA LiveChart API...")
-    fetcher = DataFetcher()
+    print(f"\n[STEP 1] Fetching energy level data for elements {training_start}-{training_end}...")
+    fetcher = DataFetcher(training_elements=training_elements)
     
     if args.fetch_data:
         raw_filepath = fetcher.fetch_and_save_training_data()
@@ -152,13 +177,13 @@ def main(args):
             save_name="training_history.png"
         )
     
-    # Step 7: Predict for remaining elements (41-118)
-    print("\n[STEP 7] Predicting energy levels for elements 41-118...")
+    # Step 7: Predict for remaining elements (training_end+1 to 118)
+    print(f"\n[STEP 7] Predicting energy levels for elements {prediction_start}-{prediction_end}...")
     
     # Create features for prediction elements
     # Generate isotopes for each element in prediction range
     prediction_isotopes = []
-    for z in PREDICTION_ELEMENTS:
+    for z in prediction_elements:
         # Estimate stable/known isotope range
         min_a = z  # At least Z protons
         max_a = z + int(z * 0.6)  # Approximate neutron-rich limit
@@ -179,14 +204,16 @@ def main(args):
     print(f"Predicting for {len(prediction_isotopes)} isotopes...")
     predictions_table = trainer.predict_energy_levels(X_pred_scaled, prediction_isotopes)
     
-    # Export predictions to CSV (matrix/table format)
-    output_csv = os.path.join(PROCESSED_DATA_DIR, "predicted_energy_levels_41_118.csv")
+    # Export predictions to CSV (matrix/table format) - filename reflects dynamic range
+    output_filename = f"predicted_energy_levels_{prediction_start}_{prediction_end}.csv"
+    output_csv = os.path.join(PROCESSED_DATA_DIR, output_filename)
     trainer.model.export_predictions_to_csv(predictions_table, output_csv)
     
     print(f"\nPredictions exported to: {output_csv}")
     
-    # Also save as JSON for programmatic access
-    output_json = os.path.join(PROCESSED_DATA_DIR, "predicted_energy_levels_41_118.json")
+    # Also save as JSON for programmatic access - filename reflects dynamic range
+    output_json_filename = f"predicted_energy_levels_{prediction_start}_{prediction_end}.json"
+    output_json = os.path.join(PROCESSED_DATA_DIR, output_json_filename)
     with open(output_json, 'w') as f:
         json.dump(predictions_table, f, indent=2)
     print(f"JSON output saved to: {output_json}")
@@ -240,7 +267,7 @@ def main(args):
     print(f"  - Visualizations: {viz_dir}/")
     print(f"  - Metadata: {metadata_file}")
     print(f"\nTotal isotopes predicted: {len(predictions_table)}")
-    print(f"Elements covered: {len(metadata_serializable['prediction_summary']['elements_covered'])} (Z=41-118)")
+    print(f"Elements covered: {len(metadata_serializable['prediction_summary']['elements_covered'])} (Z={prediction_start}-{prediction_end})")
     print("=" * 70)
 
 
@@ -270,6 +297,12 @@ if __name__ == "__main__":
         type=float,
         default=0.2,
         help="Validation split ratio"
+    )
+    parser.add_argument(
+        "--training-elements",
+        type=int,
+        default=None,
+        help=f"Number of first N elements to use for training (must be between {MIN_TRAINING_ELEMENTS} and {MAX_TRAINING_ELEMENTS}). Default is {DEFAULT_TRAINING_END}."
     )
     
     args = parser.parse_args()

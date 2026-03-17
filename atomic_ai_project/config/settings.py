@@ -15,8 +15,20 @@ PROCESSED_DATA_DIR = os.path.join(DATA_DIR, "processed")
 
 # Model Configuration
 MODEL_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "models")
-TRAINING_ELEMENTS = list(range(1, 41))  # First 40 elements (Hydrogen to Zirconium)
-PREDICTION_ELEMENTS = list(range(41, 119))  # Remaining elements
+
+# Training/Prediction Ranges (Defaults, can be overridden by CLI)
+DEFAULT_TRAINING_START = 1
+DEFAULT_TRAINING_END = 40  # Default N=40
+DEFAULT_PREDICTION_START = 41
+DEFAULT_PREDICTION_END = 118
+
+# Validation constraints for custom training ranges
+MIN_TRAINING_ELEMENTS = 30
+MAX_TRAINING_ELEMENTS = 100
+
+# These will be set dynamically in main.py based on CLI args
+TRAINING_ELEMENTS = list(range(DEFAULT_TRAINING_START, DEFAULT_TRAINING_END + 1))
+PREDICTION_ELEMENTS = list(range(DEFAULT_TRAINING_END + 1, DEFAULT_PREDICTION_END + 1))
 
 # Nuclear characteristics to predict - Focused on Energy Levels
 NUCLEAR_FEATURES = [
