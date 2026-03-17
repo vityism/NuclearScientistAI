@@ -23,35 +23,45 @@ wheels/
 
 # Virtual environments
 venv/
-env/
 ENV/
+env.bak/
 .venv/
-.env/
+env/
+
+# Testing
+.coverage
+coverage/
+htmlcov/
+.nosetests
+.unit_test_results.xml
+.pytest_cache/
+.mypy_cache/
 
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
-*.tmp
 
 # OS
 .DS_Store
 Thumbs.db
 
+# Environment variables
+.env
+.env.local
+*.env.*
+
 # Logs
 *.log
 
-# Coverage
-.coverage
-coverage/
-htmlcov/
-.coverage.*
+# Temporary files
+*.tmp
+*.temp
 
-# Distribution / packaging
-.Python
-_build/
-buck-out/
-build/
+# Build and distribution
 dist/
+build/
+*.tar.gz
+*.whl
 ```
