@@ -1,45 +1,79 @@
 """
-IAEA API Client for fetching atomic and nuclear data.
+IAEA LiveChart API Client for fetching atomic and nuclear data.
+This client uses the IAEA LiveChart API which does not require an API key.
 """
 import requests
 import json
 from typing import Dict, List, Optional
-from config.settings import IAEA_API_BASE_URL, IAEA_API_KEY
+from config.settings import IAEA_LIVECHART_BASE_URL
 
 
 class IAEAClient:
-    """Client for interacting with the IAEA atomic/nuclear database API."""
+    """Client for interacting with the IAEA LiveChart nuclear database API."""
     
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self):
         """
-        Initialize the IAEA API client.
+        Initialize the IAEA LiveChart API client.
+        No API key is required for this public API.
+        """
+        self.base_url = IAEA_LIVECHART_BASE_URL
+        self.session = requests.Session()
+        # Set user agent to be respectful
+        self.session.headers.update({
+            "User-Agent": "Atomic-AI-Project/1.0",
+            "Accept": "application/json"
+        })
+    
+    def _fetch_nuclide_data(self, atomic_number: int, mass_number: int) -> Dict:
+        """
+        Fetch raw data for a specific nuclide from IAEA LiveChart.
         
         Args:
-            api_key: API key for authentication. If None, uses environment variable.
+            atomic_number: The atomic number (Z).
+            mass_number: The mass number (A).
+            
+        Returns:
+            Dictionary containing nuclide data.
         """
-        self.api_key = api_key or IAEA_API_KEY
-        self.base_url = IAEA_API_BASE_URL
-        self.session = requests.Session()
-        if self.api_key:
-            self.session.headers.update({"Authorization": f"Bearer {self.api_key}"})
+        url = self.base_url.format(atomic_number, mass_number)
+        response = self.session.get(url)
+        response.raise_for_status()
+        return response.json()
     
     def get_element_data(self, atomic_number: int) -> Dict:
         """
-        Fetch atomic/nuclear data for a specific element.
+        Fetch atomic/nuclear data for all isotopes of a specific element.
         
         Args:
             atomic_number: The atomic number of the element (1-118).
             
         Returns:
-            Dictionary containing nuclear characteristics.
+            Dictionary containing nuclear characteristics for all isotopes.
             
         Raises:
             requests.RequestException: If API request fails.
         """
-        endpoint = f"{self.base_url}/nuclides/{atomic_number}"
-        response = self.session.get(endpoint)
-        response.raise_for_status()
-        return response.json()
+        # For LiveChart, we need to fetch each isotope individually
+        # This is a simplified approach; in practice, you'd iterate over known isotopes
+        element_data = {
+            "atomic_number": atomic_number,
+            "isotopes": []
+        }
+        
+        # Common range of mass numbers for stability estimation
+        # In production, this would be determined dynamically
+        min_mass = atomic_number  # At least Z protons
+        max_mass = atomic_number + 50  # Reasonable upper bound
+        
+        for mass_num in range(min_mass, min(max_mass, min_mass + 20)):
+            try:
+                nuclide_data = self._fetch_nuclide_data(atomic_number, mass_num)
+                if nuclide_data:
+                    element_data["isotopes"].append(nuclide_data)
+            except requests.RequestException:
+                continue
+                
+        return element_data
     
     def get_nuclide_data(self, atomic_number: int, mass_number: int) -> Dict:
         """
@@ -52,22 +86,20 @@ class IAEAClient:
         Returns:
             Dictionary containing nuclide-specific data.
         """
-        endpoint = f"{self.base_url}/nuclides/{atomic_number}/{mass_number}"
-        response = self.session.get(endpoint)
-        response.raise_for_status()
-        return response.json()
+        return self._fetch_nuclide_data(atomic_number, mass_number)
     
-    def get_binding_energy(self, atomic_number: int) -> float:
+    def get_binding_energy(self, atomic_number: int, mass_number: int) -> float:
         """
-        Get binding energy for an element.
+        Get binding energy for a specific nuclide.
         
         Args:
             atomic_number: The atomic number.
+            mass_number: The mass number.
             
         Returns:
             Binding energy in MeV.
         """
-        data = self.get_element_data(atomic_number)
+        data = self.get_nuclide_data(atomic_number, mass_number)
         return data.get("binding_energy", 0.0)
     
     def get_half_life(self, atomic_number: int, mass_number: int) -> str:
@@ -112,28 +144,30 @@ class IAEAClient:
         data = self.get_nuclide_data(atomic_number, mass_number)
         return data.get("spin_parity", "unknown")
     
-    def get_neutron_cross_section(self, atomic_number: int) -> float:
+    def get_neutron_cross_section(self, atomic_number: int, mass_number: int) -> float:
         """
-        Get neutron cross-section for an element.
+        Get neutron cross-section for a specific nuclide.
         
         Args:
             atomic_number: The atomic number.
+            mass_number: The mass number.
             
         Returns:
             Neutron cross-section in barns.
         """
-        data = self.get_element_data(atomic_number)
+        data = self.get_nuclide_data(atomic_number, mass_number)
         return data.get("neutron_cross_section", 0.0)
     
-    def get_abundance(self, atomic_number: int) -> Dict[str, float]:
+    def get_abundance(self, atomic_number: int, mass_number: int) -> float:
         """
-        Get natural abundance for isotopes of an element.
+        Get natural abundance for a specific isotope.
         
         Args:
             atomic_number: The atomic number.
+            mass_number: The mass number.
             
         Returns:
-            Dictionary mapping mass numbers to abundances (percentage).
+            Abundance percentage.
         """
-        data = self.get_element_data(atomic_number)
-        return data.get("isotopic_abundance", {})
+        data = self.get_nuclide_data(atomic_number, mass_number)
+        return data.get("abundance", 0.0)

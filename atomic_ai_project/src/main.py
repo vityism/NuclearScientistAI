@@ -38,11 +38,12 @@ def main(args):
     print("=" * 70)
     print("NUCLEAR PROPERTY PREDICTION AI")
     print("Training on elements 1-40, predicting for elements 41-118")
+    print("Data source: IAEA LiveChart API (no API key required)")
     print("=" * 70)
     
-    # Step 1: Fetch data from IAEA API
-    print("\n[STEP 1] Fetching data from IAEA API...")
-    fetcher = DataFetcher(api_key=args.api_key)
+    # Step 1: Fetch data from IAEA LiveChart API
+    print("\n[STEP 1] Fetching data from IAEA LiveChart API...")
+    fetcher = DataFetcher()
     
     if args.fetch_data:
         raw_filepath = fetcher.fetch_and_save_training_data()
@@ -221,18 +222,12 @@ def main(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Train AI model for nuclear property prediction"
-    )
-    parser.add_argument(
-        "--api-key",
-        type=str,
-        default=None,
-        help="IAEA API key (optional, can use environment variable)"
+        description="Train AI model for nuclear property prediction using IAEA LiveChart API"
     )
     parser.add_argument(
         "--fetch-data",
         action="store_true",
-        help="Fetch fresh data from IAEA API"
+        help="Fetch fresh data from IAEA LiveChart API"
     )
     parser.add_argument(
         "--epochs",

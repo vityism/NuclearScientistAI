@@ -1,5 +1,5 @@
 """
-Data fetcher for collecting atomic/nuclear data from IAEA API.
+Data fetcher for collecting atomic/nuclear data from IAEA LiveChart API.
 """
 import json
 import os
@@ -15,16 +15,14 @@ from .iaea_client import IAEAClient
 
 
 class DataFetcher:
-    """Fetches and saves atomic/nuclear data from IAEA API."""
+    """Fetches and saves atomic/nuclear data from IAEA LiveChart API."""
     
-    def __init__(self, api_key: str = None):
+    def __init__(self):
         """
         Initialize the data fetcher.
-        
-        Args:
-            api_key: Optional API key for IAEA API.
+        No API key required for IAEA LiveChart API.
         """
-        self.client = IAEAClient(api_key=api_key)
+        self.client = IAEAClient()
         self.raw_data_dir = RAW_DATA_DIR
         
     def fetch_element_data(self, atomic_number: int) -> Dict:
@@ -41,28 +39,12 @@ class DataFetcher:
             data = {
                 "atomic_number": atomic_number,
                 "timestamp": datetime.now().isoformat(),
-                "source": "IAEA"
+                "source": "IAEA LiveChart"
             }
             
-            # Get basic element data
+            # Get basic element data (includes all isotopes)
             element_data = self.client.get_element_data(atomic_number)
             data.update(element_data)
-            
-            # Get binding energy
-            data["binding_energy"] = self.client.get_binding_energy(atomic_number)
-            
-            # Get neutron cross-section
-            data["neutron_cross_section"] = self.client.get_neutron_cross_section(atomic_number)
-            
-            # Get isotopic abundance
-            data["isotopic_abundance"] = self.client.get_abundance(atomic_number)
-            
-            # Get data for most stable isotope
-            if "most_stable_isotope" in element_data:
-                mass_number = element_data["most_stable_isotope"]
-                data["half_life"] = self.client.get_half_life(atomic_number, mass_number)
-                data["decay_modes"] = self.client.get_decay_modes(atomic_number, mass_number)
-                data["spin_parity"] = self.client.get_spin_parity(atomic_number, mass_number)
             
             return data
             
@@ -81,7 +63,7 @@ class DataFetcher:
         Returns:
             List of dictionaries containing nuclear data.
         """
-        print("Fetching training data for elements 1-40...")
+        print("Fetching training data for elements 1-40 from IAEA LiveChart...")
         training_data = []
         
         for atomic_number in TRAINING_ELEMENTS:

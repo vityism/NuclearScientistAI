@@ -3,9 +3,10 @@ Configuration settings for the Atomic AI Project.
 """
 import os
 
-# IAEA API Configuration
-IAEA_API_BASE_URL = "https://api.iaea.org/nuclear-data"
-IAEA_API_KEY = os.getenv("IAEA_API_KEY", "")
+# IAEA LiveChart API Configuration
+# The IAEA LiveChart API does not require an API key
+IAEA_LIVECHART_BASE_URL = "https://www-nds.iaea.org/relnsd/vchar?tab=nuclide&Z={}&A={}"
+IAEA_API_KEY = None  # Not required for LiveChart API
 
 # Data Configuration
 DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data")
