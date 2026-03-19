@@ -13,29 +13,26 @@ build/
 # Virtual environments
 venv/
 .venv/
-env/
-.ENV/
-
-# Testing
-.coverage
-htmlcov/
-.coverage.*
-.nosetests.xml
-coverage.xml
-*.cover
-.hypothesis/
+.env
+.env.local
+*.env.*
 
 # IDE and editor files
 .vscode/
 .idea/
 *.swp
 *.swo
+
+# Logs and temporary files
+*.log
 *.tmp
 
-# Logs
-*.log
+# Coverage reports
+.coverage
+coverage/
+htmlcov/
 
-# OS generated files
-.DS_Store
-Thumbs.db
+# Testing
+.pytest_cache/
+.mypy_cache/
 ```

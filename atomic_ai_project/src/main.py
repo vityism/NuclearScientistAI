@@ -104,13 +104,17 @@ def main(args):
     print("\n[STEP 3] Preparing features and energy level sequences...")
     engineer = FeatureEngineer()
     
-    # Prepare input features (Z, A, and derived features)
+    # Prepare input features - use ONLY atomic_number and mass_number for consistency
     feature_cols = ['atomic_number', 'mass_number']
     X, feature_names = engineer.prepare_input_features(
         cleaned_df, 
         feature_cols=feature_cols,
         fit=True
     )
+    
+    # Verify we have exactly 2 features
+    assert X.shape[1] == 2, f"Expected 2 features, got {X.shape[1]}"
+    assert feature_names == ['atomic_number', 'mass_number'], f"Unexpected feature names: {feature_names}"
     
     # Prepare energy level sequences as targets
     # Shape: [num_isotopes, max_levels, 2] where 2 = [energy, spin_parity_encoded]
