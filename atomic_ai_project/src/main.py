@@ -164,9 +164,9 @@ def main(args):
     visualizer = PredictionVisualizer(save_dir=viz_dir)
     
     # Plot sample energy level predictions
-    visualizer.plot_energy_levels_comparison(
+    visualizer.plot_predictions_vs_actual(
         y_val[:5], y_pred[:5],
-        isotope_info=isotope_info[:5],
+        target_names=isotope_info[:5],
         save_name="energy_levels_comparison.png"
     )
     
