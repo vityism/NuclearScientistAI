@@ -104,17 +104,13 @@ def main(args):
     print("\n[STEP 3] Preparing features and energy level sequences...")
     engineer = FeatureEngineer()
     
-    # Prepare input features - use ONLY atomic_number and mass_number for consistency
+    # Prepare input features (Z, A, and derived features)
     feature_cols = ['atomic_number', 'mass_number']
     X, feature_names = engineer.prepare_input_features(
         cleaned_df, 
         feature_cols=feature_cols,
         fit=True
     )
-    
-    # Verify we have exactly 2 features
-    assert X.shape[1] == 2, f"Expected 2 features, got {X.shape[1]}"
-    assert feature_names == ['atomic_number', 'mass_number'], f"Unexpected feature names: {feature_names}"
     
     # Prepare energy level sequences as targets
     # Shape: [num_isotopes, max_levels, 2] where 2 = [energy, spin_parity_encoded]
@@ -168,9 +164,9 @@ def main(args):
     visualizer = PredictionVisualizer(save_dir=viz_dir)
     
     # Plot sample energy level predictions
-    visualizer.plot_predictions_vs_actual(
+    visualizer.plot_energy_levels_comparison(
         y_val[:5], y_pred[:5],
-        target_names=isotope_info[:5],
+        isotope_info=isotope_info[:5],
         save_name="energy_levels_comparison.png"
     )
     
