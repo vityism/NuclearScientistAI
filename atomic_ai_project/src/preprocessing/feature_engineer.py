@@ -29,11 +29,17 @@ class FeatureEngineer:
             
         Returns:
             Tuple of (feature_matrix, feature_names).
-            Always returns exactly 2 features: ['atomic_number', 'mass_number']
         """
-        # Always use atomic_number and mass_number for consistency
-        X = df[['atomic_number', 'mass_number']].values
-        feature_names = ['atomic_number', 'mass_number']
+        # Ensure required columns exist
+        available_cols = [col for col in feature_cols if col in df.columns]
+        
+        if not available_cols:
+            # Create minimal features from atomic_number and mass_number
+            X = df[['atomic_number', 'mass_number']].values
+            feature_names = ['atomic_number', 'mass_number']
+        else:
+            X = df[available_cols].values
+            feature_names = available_cols
         
         # Scale features
         X_scaled, _ = self.scale_features(df, feature_names, fit=fit)
@@ -163,10 +169,13 @@ class FeatureEngineer:
             
         Returns:
             Tuple of (scaled_features, scaler).
-            Always uses ['atomic_number', 'mass_number'] columns.
         """
-        # Always use atomic_number and mass_number for consistency
-        X = df[['atomic_number', 'mass_number']].values
+        available_cols = [col for col in feature_names if col in df.columns]
+        
+        if not available_cols:
+            X = df[['atomic_number', 'mass_number']].values
+        else:
+            X = df[available_cols].values
         
         if fit:
             X_scaled = self.scaler.fit_transform(X)
@@ -194,20 +203,10 @@ class FeatureEngineer:
             raise ValueError("Scaler must be fitted before scaling prediction data")
         
         # Ensure X_raw has the correct number of features
-        expected_features = self.scaler.n_features_in_
-        actual_features = X_raw.shape[1]
-        
-        if actual_features != expected_features:
-            # If mismatch, try to fix by using only the expected columns
-            if actual_features > expected_features:
-                print(f"Warning: X_raw has {actual_features} features, but scaler expects {expected_features}. Using first {expected_features} features.")
-                X_raw = X_raw[:, :expected_features]
-            else:
-                raise ValueError(
-                    f"X_raw has {actual_features} features, but scaler expects {expected_features} features. "
-                    f"Training data used features: ['atomic_number', 'mass_number']. "
-                    f"Ensure prediction data uses the same features."
-                )
+        if X_raw.shape[1] != self.scaler.n_features_in_:
+            raise ValueError(
+                f"X_raw has {X_raw.shape[1]} features, but scaler expects {self.scaler.n_features_in_} features"
+            )
         
         return self.scaler.transform(X_raw)
     
@@ -274,11 +273,7 @@ class FeatureEngineer:
             
         Returns:
             Tuple of (DataFrame with scaled features, scaled array).
-            Note: This method is deprecated. Use prepare_input_features() instead.
         """
-        # Always use atomic_number and mass_number for consistency
-        feature_cols = ['atomic_number', 'mass_number']
-        
         df = df.copy()
         
         X = df[feature_cols].values
