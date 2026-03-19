@@ -50,7 +50,12 @@ class PredictionVisualizer:
         
         for i in range(n_targets):
             ax = axes[i]
-            name = target_names[i] if target_names else f"Target {i+1}"
+            # Safely get target name, handling cases where target_names list is shorter than n_targets
+            # This can happen when not all elements have data for the same number of energy levels
+            if target_names and i < len(target_names):
+                name = target_names[i]
+            else:
+                name = f"Target {i+1}"
             
             y_true_i = y_true[:, i] if n_targets > 1 else y_true
             y_pred_i = y_pred[:, i] if n_targets > 1 else y_pred
@@ -99,7 +104,12 @@ class PredictionVisualizer:
         
         for i in range(n_targets):
             ax = axes[i]
-            name = target_names[i] if target_names else f"Target {i+1}"
+            # Safely get target name, handling cases where target_names list is shorter than n_targets
+            # This can happen when not all elements have data for the same number of energy levels
+            if target_names and i < len(target_names):
+                name = target_names[i]
+            else:
+                name = f"Target {i+1}"
             
             y_true_i = y_true[:, i] if n_targets > 1 else y_true
             y_pred_i = y_pred[:, i] if n_targets > 1 else y_pred
