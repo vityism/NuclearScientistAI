@@ -131,97 +131,65 @@ class DataCleaner:
         except (ValueError, IndexError):
             return {'spin': np.nan, 'parity': np.nan}
     
-    def clean_element_data(self, element_data: Dict) -> List[Dict]:
+    def clean_element_data(self, element_data: Dict) -> Dict:
         """
-        Clean all data for a single element and return one row per isotope.
+        Clean all data for a single element.
         
         Args:
-            element_data: Raw element data dictionary with 'atomic_number' and 'isotopes' list.
+            element_data: Raw element data dictionary.
             
         Returns:
-            List of cleaned isotope data dictionaries (one per isotope).
+            Cleaned element data dictionary.
         """
-        atomic_number = element_data.get('atomic_number', 0)
-        isotopes = element_data.get('isotopes', [])
+        cleaned = {
+            'atomic_number': element_data.get('atomic_number', 0)
+        }
         
-        if not isotopes:
-            # Return a single row with just atomic_number if no isotope data
-            return [{
-                'atomic_number': atomic_number,
-                'mass_number': atomic_number,  # Default to most stable isotope approximation
-                'binding_energy': np.nan,
-                'half_life_seconds': np.inf,
-                'dominant_mode': 8,  # stable
-                'mode_count': 0,
-                'spin': np.nan,
-                'parity': np.nan,
-                'neutron_cross_section': np.nan,
-                'abundance': np.nan,
-                'isotope_count': 0,
-                'energy_levels': []
-            }]
+        # Clean binding energy
+        cleaned['binding_energy'] = element_data.get('binding_energy', np.nan)
         
-        cleaned_isotopes = []
-        for isotope in isotopes:
-            cleaned = {
-                'atomic_number': atomic_number,
-                'mass_number': isotope.get('mass_number', atomic_number)
-            }
-            
-            # Clean binding energy
-            cleaned['binding_energy'] = isotope.get('binding_energy', np.nan)
-            
-            # Clean half-life
-            half_life_raw = isotope.get('half_life', 'stable')
-            cleaned['half_life_seconds'] = self.clean_half_life(half_life_raw)
-            
-            # Clean decay modes
-            decay_modes_raw = isotope.get('decay_modes', [])
-            decay_info = self.clean_decay_modes(decay_modes_raw)
-            cleaned.update(decay_info)
-            
-            # Clean spin-parity
-            spin_parity_raw = isotope.get('spin_parity', 'unknown')
-            spin_info = self.clean_spin_parity(spin_parity_raw)
-            cleaned.update(spin_info)
-            
-            # Clean neutron cross-section
-            cleaned['neutron_cross_section'] = isotope.get('neutron_cross_section', np.nan)
-            
-            # Clean abundance
-            abundance = isotope.get('isotopic_abundance', {})
-            if abundance:
-                cleaned['abundance'] = sum(abundance.values()) / len(abundance)
-                cleaned['isotope_count'] = len(abundance)
-            else:
-                cleaned['abundance'] = np.nan
-                cleaned['isotope_count'] = 0
-            
-            # Store energy levels
-            cleaned['energy_levels'] = isotope.get('energy_levels', [])
-            
-            cleaned_isotopes.append(cleaned)
+        # Clean half-life
+        half_life_raw = element_data.get('half_life', 'unknown')
+        cleaned['half_life_seconds'] = self.clean_half_life(half_life_raw)
         
-        return cleaned_isotopes
+        # Clean decay modes
+        decay_modes_raw = element_data.get('decay_modes', [])
+        decay_info = self.clean_decay_modes(decay_modes_raw)
+        cleaned.update(decay_info)
+        
+        # Clean spin-parity
+        spin_parity_raw = element_data.get('spin_parity', 'unknown')
+        spin_info = self.clean_spin_parity(spin_parity_raw)
+        cleaned.update(spin_info)
+        
+        # Clean neutron cross-section
+        cleaned['neutron_cross_section'] = element_data.get('neutron_cross_section', np.nan)
+        
+        # Clean abundance
+        abundance = element_data.get('isotopic_abundance', {})
+        if abundance:
+            cleaned['abundance'] = sum(abundance.values()) / len(abundance)
+            cleaned['isotope_count'] = len(abundance)
+        else:
+            cleaned['abundance'] = np.nan
+            cleaned['isotope_count'] = 0
+        
+        return cleaned
     
     def clean_dataset(self, raw_data: List[Dict]) -> pd.DataFrame:
         """
-        Clean entire dataset, flattening elements into individual isotope rows.
+        Clean entire dataset.
         
         Args:
-            raw_data: List of raw element data dictionaries (each with 'isotopes' list).
+            raw_data: List of raw element data dictionaries.
             
         Returns:
-            Pandas DataFrame with cleaned data (one row per isotope).
+            Pandas DataFrame with cleaned data.
         """
-        cleaned_data = []
-        for element_data in raw_data:
-            cleaned_isotopes = self.clean_element_data(element_data)
-            cleaned_data.extend(cleaned_isotopes)
-        
+        cleaned_data = [self.clean_element_data(item) for item in raw_data]
         df = pd.DataFrame(cleaned_data)
         
-        # Sort by atomic number, then mass number
-        df = df.sort_values(['atomic_number', 'mass_number']).reset_index(drop=True)
+        # Sort by atomic number
+        df = df.sort_values('atomic_number').reset_index(drop=True)
         
         return df
