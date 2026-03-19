@@ -41,8 +41,8 @@ class FeatureEngineer:
             X = df[available_cols].values
             feature_names = available_cols
         
-        # Scale features
-        X_scaled, _ = self.scale_features(df, feature_names, fit=fit)
+        # Scale features - pass the numpy array directly
+        X_scaled, _ = self.scale_features_array(X, feature_names, fit=fit)
         
         return X_scaled, feature_names
     
@@ -177,6 +177,30 @@ class FeatureEngineer:
         else:
             X = df[available_cols].values
         
+        if fit:
+            X_scaled = self.scaler.fit_transform(X)
+            self.fitted = True
+        else:
+            if not self.fitted:
+                raise ValueError("Scaler must be fitted before transforming")
+            X_scaled = self.scaler.transform(X)
+        
+        return X_scaled, self.scaler
+    
+    def scale_features_array(self, X: np.ndarray, 
+                            feature_names: List[str],
+                            fit: bool = True) -> Tuple[np.ndarray, StandardScaler]:
+        """
+        Scale features from a numpy array using StandardScaler.
+        
+        Args:
+            X: Input feature array.
+            feature_names: List of feature names (for validation).
+            fit: Whether to fit the scaler or just transform.
+            
+        Returns:
+            Tuple of (scaled_features, scaler).
+        """
         if fit:
             X_scaled = self.scaler.fit_transform(X)
             self.fitted = True
