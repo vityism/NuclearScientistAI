@@ -46,6 +46,23 @@ class FeatureEngineer:
         
         return X_scaled, feature_names
     
+    def prepare_prediction_features(self, prediction_isotopes: List[Dict]) -> Tuple[np.ndarray, List[str]]:
+        """
+        Prepare feature matrix for prediction isotopes.
+        
+        Args:
+            prediction_isotopes: List of dicts with 'atomic_number' and 'mass_number'.
+            
+        Returns:
+            Tuple of (feature_matrix, feature_names).
+        """
+        # Create feature matrix with same structure as training data
+        X_pred = np.array([[iso['atomic_number'], iso['mass_number']] 
+                           for iso in prediction_isotopes])
+        feature_names = ['atomic_number', 'mass_number']
+        
+        return X_pred, feature_names
+    
     def prepare_energy_level_targets(self, df: pd.DataFrame,
                                      max_levels: int = 50) -> Tuple[np.ndarray, List[Dict]]:
         """
@@ -185,7 +202,16 @@ class FeatureEngineer:
         if not self.fitted:
             raise ValueError("Scaler must be fitted before scaling prediction data")
         
+        # Ensure X_raw has the correct number of features
+        if X_raw.shape[1] != self.scaler.n_features_in_:
+            raise ValueError(
+                f"X_raw has {X_raw.shape[1]} features, but scaler expects {self.scaler.n_features_in_} features"
+            )
+        
         return self.scaler.transform(X_raw)
+    
+    def _get_period(self, atomic_number: pd.Series) -> pd.Series:
+        """Get period number from atomic number."""
         periods = pd.Series(index=atomic_number.index, dtype=int)
         
         periods[atomic_number <= 2] = 1
