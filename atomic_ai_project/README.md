@@ -84,6 +84,7 @@ python -c "import tensorflow; print(f'TensorFlow version: {tensorflow.__version_
 1. **Clone the repository:**
 ```cmd
 git clone <repository-url>
+cd NuclearScientistAI
 cd atomic_ai_project
 ```
 
