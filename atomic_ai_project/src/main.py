@@ -193,12 +193,11 @@ def main(args):
                 'mass_number': a
             })
     
-    # Create feature matrix for predictions
-    X_pred = np.array([[iso['atomic_number'], iso['mass_number']] 
-                       for iso in prediction_isotopes])
+    # Create feature matrix for predictions using the same structure as training
+    X_pred_raw, pred_feature_names = engineer.prepare_prediction_features(prediction_isotopes)
     
     # Scale features using fitted scaler
-    X_pred_scaled = engineer.scale_prediction_features(X_pred, feature_names)
+    X_pred_scaled = engineer.scale_prediction_features(X_pred_raw, pred_feature_names)
     
     # Make predictions
     print(f"Predicting for {len(prediction_isotopes)} isotopes...")
