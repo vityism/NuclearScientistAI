@@ -2,13 +2,95 @@
   {
     "atomic_number": 1,
     "timestamp": "2026-03-19T20:18:20.411377",
-    "source": "IAEA LiveChart",
-    "isotopes": []
+    "source": "Sample Data",
+    "isotopes": [
+      {
+        "mass_number": 1,
+        "binding_energy": 0.0,
+        "half_life": "stable",
+        "decay_modes": [
+          "stable"
+        ],
+        "spin_parity": "1/2+",
+        "neutron_cross_section": 0.33,
+        "energy_levels": [
+          {
+            "energy": 0.0,
+            "spin_parity": "1/2+"
+          },
+          {
+            "energy": 100.0,
+            "spin_parity": "3/2+"
+          }
+        ]
+      },
+      {
+        "mass_number": 2,
+        "binding_energy": 2.224,
+        "half_life": "stable",
+        "decay_modes": [
+          "stable"
+        ],
+        "spin_parity": "1+",
+        "neutron_cross_section": 0.0005,
+        "energy_levels": [
+          {
+            "energy": 0.0,
+            "spin_parity": "1+"
+          },
+          {
+            "energy": 50.0,
+            "spin_parity": "0+"
+          }
+        ]
+      }
+    ]
   },
   {
     "atomic_number": 2,
     "timestamp": "2026-03-19T20:18:25.591708",
-    "source": "IAEA LiveChart",
-    "isotopes": []
+    "source": "Sample Data",
+    "isotopes": [
+      {
+        "mass_number": 3,
+        "binding_energy": 7.718,
+        "half_life": "stable",
+        "decay_modes": [
+          "stable"
+        ],
+        "spin_parity": "1/2+",
+        "neutron_cross_section": 5333,
+        "energy_levels": [
+          {
+            "energy": 0.0,
+            "spin_parity": "1/2+"
+          },
+          {
+            "energy": 75.0,
+            "spin_parity": "3/2+"
+          }
+        ]
+      },
+      {
+        "mass_number": 4,
+        "binding_energy": 28.3,
+        "half_life": "stable",
+        "decay_modes": [
+          "stable"
+        ],
+        "spin_parity": "0+",
+        "neutron_cross_section": 0.0,
+        "energy_levels": [
+          {
+            "energy": 0.0,
+            "spin_parity": "0+"
+          },
+          {
+            "energy": 200.0,
+            "spin_parity": "2+"
+          }
+        ]
+      }
+    ]
   }
 ]
