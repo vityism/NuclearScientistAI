@@ -3,549 +3,210 @@ IAEA LiveChart API Client for fetching atomic and nuclear data.
 This client uses the IAEA LiveChart API which does not require an API key.
 Focus: Energy levels (excitation energies) for each isotope.
 
-NOTE: The IAEA LiveChart web interface doesn't have a direct REST API.
-We use web scraping to extract isotope data from their interactive chart.
-Alternative: Use cached/sample data for development when API is unavailable.
+API Documentation: https://www-nds.iaea.org/relnsd/vcharthtml/api_v0_guide.html
+Note: The API returns CSV format, not JSON.
 """
 import requests
-import json
-import re
-from typing import Dict, List, Optional, Any
-from config.settings import IAEA_LIVECHART_BASE_URL
-from bs4 import BeautifulSoup
+import csv
+import io
+import logging
+from typing import Dict, List, Optional, Any, Tuple
+
+logger = logging.getLogger(__name__)
 
 
 class IAEAClient:
     """Client for interacting with the IAEA LiveChart nuclear database API."""
+    
+    # Official API Base URL as per documentation
+    BASE_URL = "https://nds.iaea.org/relnsd/v1/data"
     
     def __init__(self):
         """
         Initialize the IAEA LiveChart API client.
         No API key is required for this public API.
         """
-        self.base_url = IAEA_LIVECHART_BASE_URL
         self.session = requests.Session()
-        # Set user agent to be respectful
         self.session.headers.update({
             "User-Agent": "Atomic-AI-Project/1.0",
-            "Accept": "application/json"
+            "Accept": "text/csv"
         })
     
-    def _fetch_nuclide_data(self, atomic_number: int, mass_number: int) -> Dict:
+    def get_valid_isotopes(self, atomic_number: int) -> List[int]:
         """
-        Fetch raw data for a specific nuclide from IAEA LiveChart.
-        
-        Args:
-            atomic_number: The atomic number (Z).
-            mass_number: The mass number (A).
-            
-        Returns:
-            Dictionary containing nuclide data.
-        """
-        url = self.base_url.format(atomic_number, mass_number)
-        response = self.session.get(url)
-        response.raise_for_status()
-        return response.json()
-    
-    def get_element_data(self, atomic_number: int) -> Dict:
-        """
-        Fetch atomic/nuclear data for all isotopes of a specific element.
-        Includes energy level data for each isotope.
+        Get list of valid mass numbers (isotopes) for a specific element
+        by querying the IAEA API directly.
         
         Args:
             atomic_number: The atomic number of the element (1-118).
             
         Returns:
-            Dictionary containing nuclear characteristics for all isotopes,
-            including energy levels for each isotope.
-            
-        Raises:
-            requests.RequestException: If API request fails.
+            List of valid mass numbers for this element from IAEA database.
         """
-        element_data = {
-            "atomic_number": atomic_number,
-            "isotopes": []
+        symbol = self._get_symbol(atomic_number)
+        if not symbol:
+            logger.error(f"Unknown symbol for Z={atomic_number}")
+            return []
+        
+        # Fetch all nuclide data at once and filter locally
+        # Using 'fields=levels' endpoint which returns full CSV with Z,A columns
+        try:
+            params = {
+                "nuclides": "all",
+                "fields": "levels"
+            }
+            response = self.session.get(self.BASE_URL, params=params, timeout=120)
+            response.raise_for_status()
+            
+            # Parse CSV to extract unique mass numbers for this Z
+            valid_masses = set()
+            lines = response.text.strip().split('\n')
+            
+            # Skip header line
+            for line in lines[1:]:
+                parts = line.split(',')
+                if len(parts) >= 2:
+                    try:
+                        z_val = int(parts[0])
+                        a_val = int(parts[1])
+                        if z_val == atomic_number:
+                            valid_masses.add(a_val)
+                    except (ValueError, IndexError):
+                        continue
+            
+            return sorted(list(valid_masses))
+            
+        except Exception as e:
+            logger.error(f"Error fetching isotopes for Z={atomic_number}: {e}")
+            return []
+    
+    def get_energy_levels(self, atomic_number: int, mass_number: int) -> List[Dict]:
+        """
+        Fetch energy level data for a specific isotope from IAEA API.
+        
+        Args:
+            atomic_number: Atomic number (Z).
+            mass_number: Mass number (A).
+            
+        Returns:
+            List of dictionaries containing energy level data.
+        """
+        symbol = self._get_symbol(atomic_number)
+        if not symbol:
+            logger.error(f"Unknown symbol for Z={atomic_number}")
+            return []
+        
+        nuclide_id = f"{mass_number}{symbol}".lower()
+        params = {
+            "nuclides": nuclide_id,
+            "fields": "levels"
         }
         
-        # Common range of mass numbers for stability estimation
-        min_mass = atomic_number  # At least Z protons
-        max_mass = atomic_number + 50  # Reasonable upper bound
-        
-        for mass_num in range(min_mass, min(max_mass, min_mass + 20)):
-            try:
-                nuclide_data = self._fetch_nuclide_data(atomic_number, mass_num)
-                if nuclide_data:
-                    # Extract energy levels for this isotope
-                    nuclide_data["energy_levels"] = self.get_energy_levels(atomic_number, mass_num)
-                    element_data["isotopes"].append(nuclide_data)
-            except requests.RequestException:
-                continue
-                
-        return element_data
-    
-    def get_valid_isotopes(self, atomic_number: int, verify_with_db: bool = True) -> List[int]:
-        """
-        Get list of valid mass numbers (isotopes) for a specific element.
-        
-        Scrapes the actual IAEA LiveChart database to retrieve ONLY isotopes that 
-        actually exist in the database. This prevents hallucination of non-existent isotopes.
-        
-        Args:
-            atomic_number: The atomic number of the element (1-118).
-            verify_with_db: If True (default), fetches actual isotope list from IAEA database.
-                           If False, returns empty list (no guessing allowed).
-            
-        Returns:
-            List of valid mass numbers for this element (only those in IAEA database).
-        """
-        if not verify_with_db:
-            return []
-        
-        # Fetch actual isotopes from IAEA LiveChart by scraping the element page
-        valid_masses = self._fetch_isotopes_from_iaea(atomic_number)
-        
-        if not valid_masses:
-            print(f"  Warning: Could not fetch isotopes for Z={atomic_number} from IAEA database")
-            return []
-        
-        return valid_masses
-    
-    def _fetch_isotopes_from_iaea(self, atomic_number: int) -> List[int]:
-        """
-        Fetch actual isotope mass numbers for an element from IAEA LiveChart.
-        Uses web scraping to extract the list of valid isotopes from the interactive chart.
-        
-        Args:
-            atomic_number: The atomic number of the element.
-            
-        Returns:
-            List of valid mass numbers found in the IAEA database.
-        """
-        import requests
-        from bs4 import BeautifulSoup
-        
-        # IAEA LiveChart element page URL
-        base_url = "https://www-nds.iaea.org/relnsd/vchartha/"
-        
-        session = requests.Session()
-        session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.5',
-        })
-        
         try:
-            # Try to fetch the element page from IAEA LiveChart
-            url = f"{base_url}?Z={atomic_number}"
-            response = session.get(url, timeout=10)
+            response = self.session.get(self.BASE_URL, params=params, timeout=30)
+            response.raise_for_status()
             
-            if response.status_code != 200:
-                print(f"    HTTP {response.status_code} from IAEA for Z={atomic_number}")
-                return []
+            # API returns CSV format
+            return self._parse_levels_csv(response.text)
             
-            # Parse HTML to extract isotope table
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Look for isotope links or table entries
-            # IAEA typically uses format like "A=93" or mass number in table cells
-            valid_masses = []
-            
-            # Method 1: Look for mass number patterns in the HTML
-            # Pattern: find all occurrences of mass numbers associated with this element
-            mass_pattern = re.compile(r'\bA=(\d{2,3})\b')
-            matches = mass_pattern.findall(response.text)
-            
-            if matches:
-                valid_masses = sorted(list(set([int(m) for m in matches])))
-            
-            # Method 2: If no masses found, look for nuclide notation patterns
-            if not valid_masses:
-                symbol = self._get_symbol(atomic_number)
-                # Pattern for nuclide notation like "93Nb" or "Nb-93"
-                nuclide_pattern = re.compile(rf'(\d{{2,3}}){symbol}|{symbol}[- ]?(\d{{2,3}})', re.IGNORECASE)
-                matches = nuclide_pattern.findall(response.text)
-                for match in matches:
-                    mass = match[0] if match[0] else match[1]
-                    if mass and mass.isdigit():
-                        valid_masses.append(int(mass))
-                valid_masses = sorted(list(set(valid_masses)))
-            
-            # Method 3: Fallback - scrape table rows if available
-            if not valid_masses:
-                tables = soup.find_all('table')
-                for table in tables:
-                    rows = table.find_all('tr')
-                    for row in rows:
-                        cells = row.find_all(['td', 'th'])
-                        for cell in cells:
-                            text = cell.get_text()
-                            # Look for mass numbers in cell content
-                            mass_match = re.search(rf'^(\d{{2,3}})\s*{symbol}', text, re.IGNORECASE)
-                            if mass_match:
-                                valid_masses.append(int(mass_match.group(1)))
-                
-                valid_masses = sorted(list(set(valid_masses)))
-            
-            if valid_masses:
-                print(f"    Found {len(valid_masses)} isotopes in IAEA database for Z={atomic_number}: {min(valid_masses)}-{max(valid_masses)}")
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code == 404:
+                logger.warning(f"HTTP 404: Isotope {nuclide_id} not found")
             else:
-                print(f"    No isotopes found in IAEA HTML for Z={atomic_number}")
-            
-            return valid_masses
-            
-        except requests.RequestException as e:
-            print(f"    Error fetching from IAEA for Z={atomic_number}: {e}")
+                logger.error(f"HTTP Error for {nuclide_id}: {e}")
             return []
         except Exception as e:
-            print(f"    Error parsing IAEA response for Z={atomic_number}: {e}")
+            logger.error(f"Error fetching levels for {nuclide_id}: {e}")
             return []
     
-    def _verify_isotopes_with_nndc(self, atomic_number: int, candidate_masses: List[int]) -> List[int]:
-        """
-        Verify candidate isotopes against NNDC database.
-        Returns only those isotopes that exist in the database.
-        """
-        import requests
-        from bs4 import BeautifulSoup
-        
-        symbol = self._get_symbol(atomic_number)
-        verified = []
-        
-        session = requests.Session()
-        session.headers.update({
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        })
-        
-        for mass_num in candidate_masses:
-            try:
-                url = f'https://www.nndc.bnl.gov/nudat3/getdataset.jsp?nuc={mass_num}{symbol}&unc=NDS'
-                resp = session.get(url, timeout=5)
-                
-                if resp.status_code == 200 and len(resp.text) > 1000:
-                    # Check for actual nuclear data
-                    if 'List of levels' in resp.text or 'E(level)' in resp.text:
-                        verified.append(mass_num)
-            except Exception:
-                continue
-        
-        return verified
-    
-    def verify_isotope_exists(self, atomic_number: int, mass_number: int) -> bool:
-        """
-        Verify that a specific isotope exists in the IAEA database.
-        Uses pre-defined isotope ranges for verification.
-        
-        Args:
-            atomic_number: The atomic number (Z).
-            mass_number: The mass number (A).
-            
-        Returns:
-            True if the isotope is valid, False otherwise.
-        """
-        valid_mass_numbers = self.get_valid_isotopes(atomic_number)
-        return mass_number in valid_mass_numbers
-    
-    def _get_isotope_ranges(self) -> Dict[int, tuple]:
-        """
-        Get pre-defined isotope mass number ranges for all elements.
-        Based on experimental nuclear data from IAEA and other sources.
-        
-        Returns:
-            Dictionary mapping atomic number to (min_mass, max_mass) tuple.
-        """
-        return {
-            # Light elements (Z=1-20)
-            1: (1, 7),      # H
-            2: (3, 10),     # He
-            3: (4, 12),     # Li
-            4: (6, 14),     # Be
-            5: (7, 17),     # B
-            6: (8, 22),     # C
-            7: (9, 25),     # N
-            8: (12, 28),    # O
-            9: (14, 31),    # F
-            10: (16, 34),   # Ne
-            11: (18, 37),   # Na
-            12: (20, 40),   # Mg
-            13: (22, 43),   # Al
-            14: (24, 46),   # Si
-            15: (25, 49),   # P
-            16: (26, 52),   # S
-            17: (28, 55),   # Cl
-            18: (30, 58),   # Ar
-            19: (32, 61),   # K
-            20: (34, 64),   # Ca
-            # Transition metals (Z=21-40)
-            21: (36, 67),   # Sc
-            22: (38, 70),   # Ti
-            23: (40, 73),   # V
-            24: (42, 76),   # Cr
-            25: (44, 79),   # Mn
-            26: (45, 82),   # Fe
-            27: (47, 85),   # Co
-            28: (48, 88),   # Ni
-            29: (50, 91),   # Cu
-            30: (52, 94),   # Zn
-            31: (54, 97),   # Ga
-            32: (56, 100),  # Ge
-            33: (58, 103),  # As
-            34: (60, 106),  # Se
-            35: (62, 109),  # Br
-            36: (64, 112),  # Kr
-            37: (66, 115),  # Rb
-            38: (68, 118),  # Sr
-            39: (70, 121),  # Y
-            40: (72, 124),  # Zr
-            # Heavy elements (Z=41-60)
-            41: (74, 127),  # Nb
-            42: (76, 130),  # Mo
-            43: (78, 133),  # Tc
-            44: (80, 136),  # Ru
-            45: (82, 139),  # Rh
-            46: (84, 142),  # Pd
-            47: (86, 145),  # Ag
-            48: (88, 148),  # Cd
-            49: (90, 151),  # In
-            50: (92, 154),  # Sn
-            51: (94, 157),  # Sb
-            52: (96, 160),  # Te
-            53: (98, 163),  # I
-            54: (100, 166), # Xe
-            55: (102, 169), # Cs
-            56: (104, 172), # Ba
-            57: (106, 175), # La
-            58: (108, 178), # Ce
-            59: (110, 181), # Pr
-            60: (112, 184), # Nd
-            # Lanthanides and beyond (Z=61-80)
-            61: (114, 187), # Pm
-            62: (116, 190), # Sm
-            63: (118, 193), # Eu
-            64: (120, 196), # Gd
-            65: (122, 199), # Tb
-            66: (124, 202), # Dy
-            67: (126, 205), # Ho
-            68: (128, 208), # Er
-            69: (130, 211), # Tm
-            70: (132, 214), # Yb
-            71: (134, 217), # Lu
-            72: (136, 220), # Hf
-            73: (138, 223), # Ta
-            74: (140, 226), # W
-            75: (142, 229), # Re
-            76: (144, 232), # Os
-            77: (146, 235), # Ir
-            78: (148, 238), # Pt
-            79: (150, 241), # Au
-            80: (152, 244), # Hg
-            # Very heavy elements (Z=81-100)
-            81: (154, 247), # Tl
-            82: (156, 250), # Pb
-            83: (158, 253), # Bi
-            84: (160, 256), # Po
-            85: (162, 259), # At
-            86: (164, 262), # Rn
-            87: (166, 265), # Fr
-            88: (168, 268), # Ra
-            89: (170, 271), # Ac
-            90: (172, 274), # Th
-            91: (174, 277), # Pa
-            92: (176, 280), # U
-            93: (178, 283), # Np
-            94: (180, 286), # Pu
-            95: (182, 289), # Am
-            96: (184, 292), # Cm
-            97: (186, 295), # Bk
-            98: (188, 298), # Cf
-            99: (190, 301), # Es
-            100: (192, 304), # Fm
-            # Superheavy elements (Z=101-118)
-            101: (194, 307), # Md
-            102: (196, 310), # No
-            103: (198, 313), # Lr
-            104: (200, 316), # Rf
-            105: (202, 319), # Db
-            106: (204, 322), # Sg
-            107: (206, 325), # Bh
-            108: (208, 328), # Hs
-            109: (210, 331), # Mt
-            110: (212, 334), # Ds
-            111: (214, 337), # Rg
-            112: (216, 340), # Cn
-            113: (218, 343), # Nh
-            114: (220, 346), # Fl
-            115: (222, 349), # Mc
-            116: (224, 352), # Lv
-            117: (226, 355), # Ts
-            118: (228, 358), # Og
-        }
-    
-    def get_all_prediction_isotopes(self, start_atomic: int, end_atomic: int) -> List[Dict]:
-        """
-        Get all valid isotopes for a range of elements using pre-defined isotope ranges.
-        This ensures predictions are only made for real, verified isotopes.
-        
-        Args:
-            start_atomic: Starting atomic number (inclusive).
-            end_atomic: Ending atomic number (inclusive).
-            
-        Returns:
-            List of dictionaries with 'atomic_number' and 'mass_number' for all valid isotopes.
-        """
-        all_isotopes = []
-        
-        print(f"Retrieving valid isotopes from IAEA database for elements {start_atomic}-{end_atomic}...")
-        
-        for z in range(start_atomic, end_atomic + 1):
-            try:
-                valid_mass_numbers = self.get_valid_isotopes(z)
-                if valid_mass_numbers:
-                    for a in valid_mass_numbers:
-                        all_isotopes.append({
-                            'atomic_number': z,
-                            'mass_number': a
-                        })
-                    print(f"  Element {z}: Found {len(valid_mass_numbers)} valid isotopes")
-                else:
-                    print(f"  Element {z}: No valid isotopes found in database")
-            except Exception as e:
-                print(f"  Element {z}: Error fetching isotopes - {e}")
-                continue
-        
-        print(f"Total valid isotopes found: {len(all_isotopes)}")
-        return all_isotopes
-    
-    def verify_prediction_isotopes(self, prediction_isotopes: List[Dict], 
-                                    start_atomic: int, end_atomic: int) -> Dict:
-        """
-        Verify that all prediction isotopes are valid and check for any missing isotopes.
-        This double-checks against the IAEA database to ensure completeness.
-        
-        Args:
-            prediction_isotopes: List of predicted isotope dicts with 'atomic_number' and 'mass_number'.
-            start_atomic: Starting atomic number (inclusive).
-            end_atomic: Ending atomic number (inclusive).
-            
-        Returns:
-            Dictionary with verification results including missing and extra isotopes.
-        """
-        # Get all valid isotopes from database
-        valid_isotopes = self.get_all_prediction_isotopes(start_atomic, end_atomic)
-        valid_set = {(iso['atomic_number'], iso['mass_number']) for iso in valid_isotopes}
-        predicted_set = {(iso['atomic_number'], iso['mass_number']) for iso in prediction_isotopes}
-        
-        missing = valid_set - predicted_set
-        extra = predicted_set - valid_set
-        
-        verification_result = {
-            'total_valid_isotopes': len(valid_isotopes),
-            'total_predicted_isotopes': len(prediction_isotopes),
-            'missing_count': len(missing),
-            'extra_count': len(extra),
-            'missing_isotopes': sorted(list(missing)),
-            'extra_isotopes': sorted(list(extra)),
-            'is_complete': len(missing) == 0 and len(extra) == 0
-        }
-        
-        return verification_result
-    
-    def get_nuclide_data(self, atomic_number: int, mass_number: int) -> Dict:
-        """
-        Fetch data for a specific nuclide.
-        
-        Args:
-            atomic_number: The atomic number.
-            mass_number: The mass number.
-            
-        Returns:
-            Dictionary containing nuclide-specific data including energy levels.
-        """
-        data = self._fetch_nuclide_data(atomic_number, mass_number)
-        data["energy_levels"] = self.get_energy_levels(atomic_number, mass_number)
-        return data
-    
-    def get_energy_levels(self, atomic_number: int, mass_number: int) -> List[Dict[str, Any]]:
-        """
-        Get energy levels (excitation energies) for a specific nuclide.
-        
-        Args:
-            atomic_number: The atomic number.
-            mass_number: The mass number.
-            
-        Returns:
-            List of dictionaries, each containing:
-                - energy: Excitation energy in keV
-                - spin_parity: Jπ value
-                - half_life: Half-life at this energy level (if applicable)
-                - decay_mode: Decay mode from this level (if applicable)
-        """
-        # Fetch from IAEA LiveChart - energy level endpoint
-        # Note: Actual implementation depends on IAEA API structure
-        # This is a placeholder that would be adapted to actual API response
+    def _parse_levels_csv(self, csv_text: str) -> List[Dict]:
+        """Parse CSV response from IAEA API into list of level dictionaries."""
+        levels = []
         try:
-            url = f"{self.base_url}&levels=true".format(atomic_number, mass_number)
-            response = self.session.get(url)
-            if response.status_code == 200:
-                data = response.json()
-                return data.get("energy_levels", [])
-        except Exception:
-            pass
+            reader = csv.DictReader(io.StringIO(csv_text))
+            for row in reader:
+                level_data = {}
+                
+                # Extract energy (in keV)
+                if 'energy' in row and row['energy']:
+                    try:
+                        level_data['energy_keV'] = float(row['energy'])
+                    except ValueError:
+                        continue
+                
+                # Extract spin-parity
+                if 'jp' in row and row['jp']:
+                    level_data['spin_parity'] = row['jp']
+                
+                # Extract half-life if present
+                if 'half_life_sec' in row and row['half_life_sec']:
+                    try:
+                        level_data['half_life_sec'] = float(row['half_life_sec'])
+                    except ValueError:
+                        pass
+                
+                if 'energy_keV' in level_data:
+                    levels.append(level_data)
+                    
+        except Exception as e:
+            logger.error(f"Error parsing CSV: {e}")
         
-        # Fallback: return empty list if API doesn't provide detailed levels
-        return []
+        return levels
     
-    def get_binding_energy(self, atomic_number: int, mass_number: int) -> float:
+    def _get_symbol(self, z: int) -> Optional[str]:
+        """Returns the chemical symbol for a given atomic number."""
+        symbols = [
+            "", "H", "He", "Li", "Be", "B", "C", "N", "O", "F", "Ne",
+            "Na", "Mg", "Al", "Si", "P", "S", "Cl", "Ar", "K", "Ca",
+            "Sc", "Ti", "V", "Cr", "Mn", "Fe", "Co", "Ni", "Cu", "Zn",
+            "Ga", "Ge", "As", "Se", "Br", "Kr", "Rb", "Sr", "Y", "Zr",
+            "Nb", "Mo", "Tc", "Ru", "Rh", "Pd", "Ag", "Cd", "In", "Sn",
+            "Sb", "Te", "I", "Xe", "Cs", "Ba", "La", "Ce", "Pr", "Nd",
+            "Pm", "Sm", "Eu", "Gd", "Tb", "Dy", "Ho", "Er", "Tm", "Yb",
+            "Lu", "Hf", "Ta", "W", "Re", "Os", "Ir", "Pt", "Au", "Hg",
+            "Tl", "Pb", "Bi", "Po", "At", "Rn", "Fr", "Ra", "Ac", "Th",
+            "Pa", "U", "Np", "Pu", "Am", "Cm", "Bk", "Cf", "Es", "Fm",
+            "Md", "No", "Lr", "Rf", "Db", "Sg", "Bh", "Hs", "Mt", "Ds",
+            "Rg", "Cn", "Nh", "Fl", "Mc", "Lv", "Ts", "Og"
+        ]
+        if 1 <= z < len(symbols):
+            return symbols[z]
+        return None
+    
+    def verify_prediction_isotopes(self, prediction_isotopes: List[Tuple[int, int]], 
+                                   start_atomic: int, end_atomic: int) -> Dict:
         """
-        Get binding energy for a specific nuclide.
+        Double-checks that predictions match exactly the valid isotopes in the database.
         
         Args:
-            atomic_number: The atomic number.
-            mass_number: The mass number.
+            prediction_isotopes: List of (Z, A) tuples that were predicted.
+            start_atomic: Start of prediction range (inclusive).
+            end_atomic: End of prediction range (inclusive).
             
         Returns:
-            Binding energy in MeV.
+            Dictionary with verification results.
         """
-        data = self.get_nuclide_data(atomic_number, mass_number)
-        return data.get("binding_energy", 0.0)
-    
-    def get_half_life(self, atomic_number: int, mass_number: int) -> str:
-        """
-        Get half-life for a specific nuclide.
+        valid_isotopes_set = set()
         
-        Args:
-            atomic_number: The atomic number.
-            mass_number: The mass number.
-            
-        Returns:
-            Half-life string (e.g., "stable", "1.23e+9 years").
-        """
-        data = self.get_nuclide_data(atomic_number, mass_number)
-        return data.get("half_life", "unknown")
-    
-    def get_decay_modes(self, atomic_number: int, mass_number: int) -> List[str]:
-        """
-        Get decay modes for a specific nuclide.
+        logger.info("Verifying predictions against IAEA database...")
+        for z in range(start_atomic, end_atomic + 1):
+            valid_masses = self.get_valid_isotopes(z)
+            for a in valid_masses:
+                valid_isotopes_set.add((z, a))
         
-        Args:
-            atomic_number: The atomic number.
-            mass_number: The mass number.
-            
-        Returns:
-            List of decay mode strings.
-        """
-        data = self.get_nuclide_data(atomic_number, mass_number)
-        return data.get("decay_modes", [])
-    
-    def get_spin_parity(self, atomic_number: int, mass_number: int) -> str:
-        """
-        Get spin and parity for a specific nuclide.
+        predicted_set = set(prediction_isotopes)
         
-        Args:
-            atomic_number: The atomic number.
-            mass_number: The mass number.
-            
-        Returns:
-            Spin-parity string (e.g., "0+", "7/2-").
-        """
-        data = self.get_nuclide_data(atomic_number, mass_number)
-        return data.get("spin_parity", "unknown")
+        missing = valid_isotopes_set - predicted_set
+        extra = predicted_set - valid_isotopes_set
+        
+        report = {
+            "total_valid": len(valid_isotopes_set),
+            "total_predicted": len(predicted_set),
+            "missing_count": len(missing),
+            "extra_count": len(extra),
+            "missing_list": sorted(list(missing)),
+            "extra_list": sorted(list(extra)),
+            "passed": len(missing) == 0 and len(extra) == 0
+        }
+        
+        return report
