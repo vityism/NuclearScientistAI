@@ -83,44 +83,152 @@ class IAEAClient:
                 
         return element_data
     
-    def get_valid_isotopes(self, atomic_number: int) -> List[int]:
+    def get_valid_isotopes(self, atomic_number: int, verify_with_db: bool = True) -> List[int]:
         """
-        Get list of valid mass numbers (isotopes) for a specific element from IAEA database.
-        This method uses pre-defined isotope ranges based on experimental nuclear data.
+        Get list of valid mass numbers (isotopes) for a specific element.
         
-        For elements 1-118, we use known isotope ranges from nuclear physics data
-        compiled from IAEA and other authoritative nuclear databases.
-        This is more reliable than live API calls which may be rate-limited or unavailable.
+        Scrapes the actual IAEA LiveChart database to retrieve ONLY isotopes that 
+        actually exist in the database. This prevents hallucination of non-existent isotopes.
         
         Args:
             atomic_number: The atomic number of the element (1-118).
+            verify_with_db: If True (default), fetches actual isotope list from IAEA database.
+                           If False, returns empty list (no guessing allowed).
             
         Returns:
-            List of valid mass numbers for this element.
+            List of valid mass numbers for this element (only those in IAEA database).
         """
-        # Pre-defined isotope ranges based on nuclear physics data
-        # Format: {atomic_number: (min_mass, max_mass)}
-        # These ranges cover all known isotopes for each element
-        isotope_ranges = self._get_isotope_ranges()
+        if not verify_with_db:
+            return []
         
-        if atomic_number in isotope_ranges:
-            min_mass, max_mass = isotope_ranges[atomic_number]
-            return list(range(min_mass, max_mass + 1))
-        else:
-            # For unknown elements, estimate based on stability valley
-            # N ≈ Z for light elements, N ≈ 1.5Z for heavy elements
-            if atomic_number <= 20:
-                n_neutrons = atomic_number
-            elif atomic_number <= 50:
-                n_neutrons = int(atomic_number * 1.25)
+        # Fetch actual isotopes from IAEA LiveChart by scraping the element page
+        valid_masses = self._fetch_isotopes_from_iaea(atomic_number)
+        
+        if not valid_masses:
+            print(f"  Warning: Could not fetch isotopes for Z={atomic_number} from IAEA database")
+            return []
+        
+        return valid_masses
+    
+    def _fetch_isotopes_from_iaea(self, atomic_number: int) -> List[int]:
+        """
+        Fetch actual isotope mass numbers for an element from IAEA LiveChart.
+        Uses web scraping to extract the list of valid isotopes from the interactive chart.
+        
+        Args:
+            atomic_number: The atomic number of the element.
+            
+        Returns:
+            List of valid mass numbers found in the IAEA database.
+        """
+        import requests
+        from bs4 import BeautifulSoup
+        
+        # IAEA LiveChart element page URL
+        base_url = "https://www-nds.iaea.org/relnsd/vchartha/"
+        
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.5',
+        })
+        
+        try:
+            # Try to fetch the element page from IAEA LiveChart
+            url = f"{base_url}?Z={atomic_number}"
+            response = session.get(url, timeout=10)
+            
+            if response.status_code != 200:
+                print(f"    HTTP {response.status_code} from IAEA for Z={atomic_number}")
+                return []
+            
+            # Parse HTML to extract isotope table
+            soup = BeautifulSoup(response.text, 'html.parser')
+            
+            # Look for isotope links or table entries
+            # IAEA typically uses format like "A=93" or mass number in table cells
+            valid_masses = []
+            
+            # Method 1: Look for mass number patterns in the HTML
+            # Pattern: find all occurrences of mass numbers associated with this element
+            mass_pattern = re.compile(r'\bA=(\d{2,3})\b')
+            matches = mass_pattern.findall(response.text)
+            
+            if matches:
+                valid_masses = sorted(list(set([int(m) for m in matches])))
+            
+            # Method 2: If no masses found, look for nuclide notation patterns
+            if not valid_masses:
+                symbol = self._get_symbol(atomic_number)
+                # Pattern for nuclide notation like "93Nb" or "Nb-93"
+                nuclide_pattern = re.compile(rf'(\d{{2,3}}){symbol}|{symbol}[- ]?(\d{{2,3}})', re.IGNORECASE)
+                matches = nuclide_pattern.findall(response.text)
+                for match in matches:
+                    mass = match[0] if match[0] else match[1]
+                    if mass and mass.isdigit():
+                        valid_masses.append(int(mass))
+                valid_masses = sorted(list(set(valid_masses)))
+            
+            # Method 3: Fallback - scrape table rows if available
+            if not valid_masses:
+                tables = soup.find_all('table')
+                for table in tables:
+                    rows = table.find_all('tr')
+                    for row in rows:
+                        cells = row.find_all(['td', 'th'])
+                        for cell in cells:
+                            text = cell.get_text()
+                            # Look for mass numbers in cell content
+                            mass_match = re.search(rf'^(\d{{2,3}})\s*{symbol}', text, re.IGNORECASE)
+                            if mass_match:
+                                valid_masses.append(int(mass_match.group(1)))
+                
+                valid_masses = sorted(list(set(valid_masses)))
+            
+            if valid_masses:
+                print(f"    Found {len(valid_masses)} isotopes in IAEA database for Z={atomic_number}: {min(valid_masses)}-{max(valid_masses)}")
             else:
-                n_neutrons = int(atomic_number * 1.5)
+                print(f"    No isotopes found in IAEA HTML for Z={atomic_number}")
             
-            # Allow ±15 neutrons from the stability line
-            min_mass = atomic_number + max(0, n_neutrons - 15)
-            max_mass = atomic_number + n_neutrons + 15
+            return valid_masses
             
-            return list(range(min_mass, max_mass + 1))
+        except requests.RequestException as e:
+            print(f"    Error fetching from IAEA for Z={atomic_number}: {e}")
+            return []
+        except Exception as e:
+            print(f"    Error parsing IAEA response for Z={atomic_number}: {e}")
+            return []
+    
+    def _verify_isotopes_with_nndc(self, atomic_number: int, candidate_masses: List[int]) -> List[int]:
+        """
+        Verify candidate isotopes against NNDC database.
+        Returns only those isotopes that exist in the database.
+        """
+        import requests
+        from bs4 import BeautifulSoup
+        
+        symbol = self._get_symbol(atomic_number)
+        verified = []
+        
+        session = requests.Session()
+        session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        })
+        
+        for mass_num in candidate_masses:
+            try:
+                url = f'https://www.nndc.bnl.gov/nudat3/getdataset.jsp?nuc={mass_num}{symbol}&unc=NDS'
+                resp = session.get(url, timeout=5)
+                
+                if resp.status_code == 200 and len(resp.text) > 1000:
+                    # Check for actual nuclear data
+                    if 'List of levels' in resp.text or 'E(level)' in resp.text:
+                        verified.append(mass_num)
+            except Exception:
+                continue
+        
+        return verified
     
     def verify_isotope_exists(self, atomic_number: int, mass_number: int) -> bool:
         """
