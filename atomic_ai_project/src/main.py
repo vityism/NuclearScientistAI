@@ -180,18 +180,19 @@ def main(args):
     # Step 7: Predict for remaining elements (training_end+1 to 118)
     print(f"\n[STEP 7] Predicting energy levels for elements {prediction_start}-{prediction_end}...")
     
-    # Create features for prediction elements
-    # Generate isotopes for each element in prediction range
-    prediction_isotopes = []
-    for z in prediction_elements:
-        # Estimate stable/known isotope range
-        min_a = z  # At least Z protons
-        max_a = z + int(z * 0.6)  # Approximate neutron-rich limit
-        for a in range(min_a, min(max_a, min_a + 15)):  # Limit to ~15 isotopes per element
-            prediction_isotopes.append({
-                'atomic_number': z,
-                'mass_number': a
-            })
+    # Fetch all valid isotopes from IAEA database for prediction elements
+    # This ensures we only predict for real, verified isotopes
+    fetcher = DataFetcher(training_elements=prediction_elements)
+    prediction_isotopes = fetcher.fetch_valid_prediction_isotopes(
+        start_atomic=prediction_start,
+        end_atomic=prediction_end
+    )
+    
+    if not prediction_isotopes:
+        print("Error: No valid isotopes found in IAEA database for prediction elements.")
+        return
+    
+    print(f"Found {len(prediction_isotopes)} valid isotopes to predict")
     
     # Create feature matrix for predictions using the same structure as training
     X_pred_raw, pred_feature_names = engineer.prepare_prediction_features(prediction_isotopes)
@@ -199,9 +200,47 @@ def main(args):
     # Scale features using fitted scaler
     X_pred_scaled = engineer.scale_prediction_features(X_pred_raw, pred_feature_names)
     
-    # Make predictions
+    # Make predictions - one prediction per valid isotope
     print(f"Predicting for {len(prediction_isotopes)} isotopes...")
     predictions_table = trainer.predict_energy_levels(X_pred_scaled, prediction_isotopes)
+    
+    # Double-check with IAEA database to verify all valid isotopes have predictions
+    # and no hallucinated isotopes exist
+    print("\n[VERIFICATION] Double-checking predictions against IAEA database...")
+    client = fetcher.client  # Get the IAEA client from fetcher
+    verification_result = client.verify_prediction_isotopes(
+        prediction_isotopes=predictions_table,
+        start_atomic=prediction_start,
+        end_atomic=prediction_end
+    )
+    
+    # Print verification results
+    print(f"\nVerification Results:")
+    print(f"  Total valid isotopes in database: {verification_result['total_valid_isotopes']}")
+    print(f"  Total isotopes predicted: {verification_result['total_predicted_isotopes']}")
+    print(f"  Missing predictions: {verification_result['missing_count']}")
+    print(f"  Extra (hallucinated) predictions: {verification_result['extra_count']}")
+    
+    if verification_result['missing_count'] > 0:
+        print(f"\nWARNING: Missing predictions for {verification_result['missing_count']} isotopes:")
+        for z, a in verification_result['missing_isotopes'][:10]:
+            print(f"  - Z={z}, A={a}")
+        if verification_result['missing_count'] > 10:
+            print(f"  ... and {verification_result['missing_count'] - 10} more")
+    
+    if verification_result['extra_count'] > 0:
+        print(f"\nWARNING: Extra (hallucinated) predictions for {verification_result['extra_count']} non-existent isotopes:")
+        for z, a in verification_result['extra_isotopes'][:10]:
+            print(f"  - Z={z}, A={a}")
+        if verification_result['extra_count'] > 10:
+            print(f"  ... and {verification_result['extra_count'] - 10} more")
+    
+    if verification_result['is_complete']:
+        print("\n✓ VERIFICATION PASSED: Every valid isotope has exactly one prediction")
+        print("✓ No hallucinated isotopes detected")
+    else:
+        print("\n✗ VERIFICATION FAILED: Discrepancies detected between predictions and IAEA database")
+        print("  Please review the missing/extra isotopes listed above")
     
     # Export predictions to CSV (matrix/table format) - filename reflects dynamic range
     output_filename = f"predicted_energy_levels_{prediction_start}_{prediction_end}.csv"

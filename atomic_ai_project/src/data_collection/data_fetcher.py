@@ -96,6 +96,21 @@ class DataFetcher:
         """
         return list(range(training_end + 1, 119))
     
+    def fetch_valid_prediction_isotopes(self, start_atomic: int, end_atomic: int) -> List[Dict]:
+        """
+        Fetch all valid isotopes from IAEA database for prediction elements.
+        This method queries the database to ensure we only predict for real isotopes.
+        
+        Args:
+            start_atomic: Starting atomic number (inclusive).
+            end_atomic: Ending atomic number (inclusive).
+            
+        Returns:
+            List of dictionaries with 'atomic_number' and 'mass_number' for all valid isotopes.
+        """
+        # Use the IAEA client to get all valid isotopes
+        return self.client.get_all_prediction_isotopes(start_atomic, end_atomic)
+    
     def save_raw_data(self, data: List[Dict], filename: str = None) -> str:
         """
         Save raw data to JSON file.
