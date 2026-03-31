@@ -160,8 +160,28 @@ class DataFetcher:
         Returns:
             List of dictionaries with 'atomic_number' and 'mass_number' for all valid isotopes.
         """
-        # Use the IAEA client to get all valid isotopes
-        return self.client.get_all_prediction_isotopes(start_atomic, end_atomic)
+        all_isotopes = []
+        
+        print(f"Retrieving valid isotopes from IAEA database for elements {start_atomic}-{end_atomic}...")
+        
+        for z in range(start_atomic, end_atomic + 1):
+            try:
+                valid_mass_numbers = self.client.get_valid_isotopes(z)
+                if valid_mass_numbers:
+                    for a in valid_mass_numbers:
+                        all_isotopes.append({
+                            'atomic_number': z,
+                            'mass_number': a
+                        })
+                    print(f"  Element {z}: Found {len(valid_mass_numbers)} valid isotopes")
+                else:
+                    print(f"  Element {z}: No valid isotopes found in database")
+            except Exception as e:
+                print(f"  Element {z}: Error fetching isotopes - {e}")
+                continue
+        
+        print(f"Total valid isotopes found: {len(all_isotopes)}")
+        return all_isotopes
     
     def save_raw_data(self, data: List[Dict], filename: str = None) -> str:
         """
