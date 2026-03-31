@@ -67,20 +67,72 @@ class DataFetcher:
     
     def fetch_training_data(self) -> List[Dict]:
         """
-        Fetch data for all training elements.
+        Fetch data for all training elements from IAEA API.
+        Ensures ONLY valid isotopes from the database are used.
         
         Returns:
             List of dictionaries containing nuclear data.
         """
         start_elem = min(self.training_elements)
         end_elem = max(self.training_elements)
-        print(f"Fetching training data for elements {start_elem}-{end_elem} from IAEA LiveChart...")
+        print(f"\nFetching training data for elements {start_elem}-{end_elem} from IAEA LiveChart API...")
+        print("="*70)
+        
         training_data = []
+        total_isotopes = 0
         
         for atomic_number in self.training_elements:
-            print(f"  Fetching element {atomic_number}...")
-            data = self.fetch_element_data(atomic_number)
-            training_data.append(data)
+            print(f"\nElement {atomic_number}:")
+            
+            # Get ONLY valid isotopes from IAEA API
+            valid_mass_numbers = self.client.get_valid_isotopes(atomic_number)
+            
+            if not valid_mass_numbers:
+                print(f"  Warning: No valid isotopes found for Z={atomic_number}, skipping...")
+                continue
+            
+            element_data = {
+                "atomic_number": atomic_number,
+                "timestamp": datetime.now().isoformat(),
+                "source": "IAEA LiveChart API",
+                "isotopes": []
+            }
+            
+            # Fetch energy levels for EACH valid isotope
+            for mass_number in valid_mass_numbers:
+                print(f"  - Isotope {atomic_number}-{mass_number}...", end=" ")
+                
+                # Get energy levels from API
+                levels = self.client.get_energy_levels(atomic_number, mass_number)
+                
+                if levels:
+                    isotope_data = {
+                        "mass_number": mass_number,
+                        "energy_levels": levels
+                    }
+                    element_data["isotopes"].append(isotope_data)
+                    total_isotopes += 1
+                    print(f"found {len(levels)} levels")
+                else:
+                    # Include isotope even if no excited levels recorded (ground state exists)
+                    isotope_data = {
+                        "mass_number": mass_number,
+                        "energy_levels": [{"e_level": 0.0, "spin": "unknown", "parity": "unknown"}]
+                    }
+                    element_data["isotopes"].append(isotope_data)
+                    total_isotopes += 1
+                    print("ground state only")
+            
+            if element_data["isotopes"]:
+                training_data.append(element_data)
+                print(f"  ✓ Element {atomic_number}: Collected {len(element_data['isotopes'])} isotopes")
+        
+        print("\n" + "="*70)
+        print(f"TRAINING DATA SUMMARY:")
+        print(f"  Elements processed: {len(training_data)}")
+        print(f"  Total isotopes:     {total_isotopes}")
+        print(f"  Element range:      {start_elem} to {end_elem}")
+        print("="*70 + "\n")
         
         return training_data
     
