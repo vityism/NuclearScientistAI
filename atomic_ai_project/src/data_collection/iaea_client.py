@@ -199,19 +199,25 @@ class IAEAClient:
             for a in valid_masses:
                 valid_isotopes_set.add((z, a))
         
-        predicted_set = set(prediction_isotopes)
+        # Convert prediction_isotopes (list of dicts) to set of tuples
+        predicted_set = set()
+        for item in prediction_isotopes:
+            if isinstance(item, dict):
+                predicted_set.add((item["atomic_number"], item["mass_number"]))
+            elif isinstance(item, (tuple, list)) and len(item) == 2:
+                predicted_set.add(tuple(item))
         
         missing = valid_isotopes_set - predicted_set
         extra = predicted_set - valid_isotopes_set
         
         report = {
-            "total_valid": len(valid_isotopes_set),
-            "total_predicted": len(predicted_set),
+            "total_valid_isotopes": len(valid_isotopes_set),
+            "total_predicted_isotopes": len(predicted_set),
             "missing_count": len(missing),
             "extra_count": len(extra),
-            "missing_list": sorted(list(missing)),
-            "extra_list": sorted(list(extra)),
-            "passed": len(missing) == 0 and len(extra) == 0
+            "missing_isotopes": sorted(list(missing)),
+            "extra_isotopes": sorted(list(extra)),
+            "is_complete": len(missing) == 0 and len(extra) == 0
         }
         
         return report
