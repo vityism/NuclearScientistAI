@@ -52,12 +52,12 @@ class IAEAClient:
             logger.error(f"Unknown symbol for Z={atomic_number}")
             return []
         
-        # Fetch all nuclide data at once and filter locally
-        # Using 'fields=levels' endpoint which returns full CSV with Z,A columns
+        # Use ground_states endpoint with nuclides=all to get complete isotope list
+        # This endpoint returns one row per nuclide with basic info
         try:
             params = {
                 "nuclides": "all",
-                "fields": "levels"
+                "fields": "ground_states"
             }
             response = self.session.get(self.BASE_URL, params=params, timeout=120)
             response.raise_for_status()
@@ -72,8 +72,9 @@ class IAEAClient:
                 if len(parts) >= 2:
                     try:
                         z_val = int(parts[0])
-                        a_val = int(parts[1])
+                        n_val = int(parts[1])  # neutron number
                         if z_val == atomic_number:
+                            a_val = z_val + n_val  # mass number = Z + N
                             valid_masses.add(a_val)
                     except (ValueError, IndexError):
                         continue
