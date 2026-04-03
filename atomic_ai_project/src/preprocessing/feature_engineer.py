@@ -97,7 +97,8 @@ class FeatureEngineer:
                 for level_idx, level_data in enumerate(energy_levels[:max_levels]):
                     # Extract energy value
                     if isinstance(level_data, dict):
-                        energy = level_data.get('energy', 0.0)
+                        # Try both 'energy' and 'energy_keV' keys (IAEA API uses 'energy_keV')
+                        energy = level_data.get('energy_keV', level_data.get('energy', 0.0))
                         spin_parity = level_data.get('spin_parity', '0+')
                     else:
                         energy = float(level_data) if len(level_data) > 0 else 0.0

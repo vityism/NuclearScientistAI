@@ -170,13 +170,15 @@ class EnergyLevelPredictor:
         return predictions
     
     def predict_energy_levels_table(self, X: np.ndarray, 
-                                    isotope_info: List[Dict]) -> List[Dict]:
+                                    isotope_info: List[Dict],
+                                    max_output_levels: int = 30) -> List[Dict]:
         """
         Predict energy levels and format as a readable table/matrix.
         
         Args:
             X: Input features.
             isotope_info: List of dicts with 'atomic_number' and 'mass_number'.
+            max_output_levels: Maximum number of energy levels to include in output (default 30).
             
         Returns:
             List of dictionaries, one per isotope, containing:
@@ -195,7 +197,8 @@ class EnergyLevelPredictor:
                 "energy_levels": []
             }
             
-            for level_idx in range(self.max_levels):
+            # Only output the first max_output_levels energy levels
+            for level_idx in range(min(self.max_levels, max_output_levels)):
                 energy = predictions[i, level_idx, 0]
                 spin_parity_encoded = predictions[i, level_idx, 1]
                 

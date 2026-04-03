@@ -201,8 +201,13 @@ def main(args):
     X_pred_scaled = engineer.scale_prediction_features(X_pred_raw, pred_feature_names)
     
     # Make predictions - one prediction per valid isotope
+    # Only output first 30 energy levels per isotope (training still uses all available data)
     print(f"Predicting for {len(prediction_isotopes)} isotopes...")
-    predictions_table = trainer.predict_energy_levels(X_pred_scaled, prediction_isotopes)
+    predictions_table = trainer.predict_energy_levels(
+        X_pred_scaled, 
+        prediction_isotopes,
+        max_output_levels=30
+    )
     
     # Double-check with IAEA database to verify all valid isotopes have predictions
     # and no hallucinated isotopes exist
