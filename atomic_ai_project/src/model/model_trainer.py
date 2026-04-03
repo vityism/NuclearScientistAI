@@ -119,13 +119,15 @@ class EnergyLevelTrainer:
         return metrics
     
     def predict_energy_levels(self, X: np.ndarray, 
-                              isotope_info: List[Dict]) -> List[Dict]:
+                              isotope_info: List[Dict],
+                              max_output_levels: int = 30) -> List[Dict]:
         """
         Predict energy levels for specific isotopes.
         
         Args:
             X: Feature matrix [num_isotopes, input_dim].
             isotope_info: List of dicts with 'atomic_number' and 'mass_number'.
+            max_output_levels: Maximum number of energy levels to include in output (default 30).
             
         Returns:
             List of dictionaries with predicted energy levels for each isotope.
@@ -133,7 +135,7 @@ class EnergyLevelTrainer:
         if self.model is None:
             raise ValueError("No trained model available")
         
-        return self.model.predict_energy_levels_table(X, isotope_info)
+        return self.model.predict_energy_levels_table(X, isotope_info, max_output_levels=max_output_levels)
     
     def predict_elements_range(self, X: np.ndarray,
                                atomic_numbers: List[int]) -> Dict:
